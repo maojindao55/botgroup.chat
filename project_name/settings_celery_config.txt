@@ -1,0 +1,67 @@
+# Celery Configuration Options
+# Add these to your main settings.py file (e.g., project_name/settings.py)
+
+# Broker settings - Example using Redis
+# Ensure Redis server is running and accessible.
+# Format: redis://<host>:<port>/<db_number>
+CELERY_BROKER_URL = 'redis://localhost:6379/0' 
+
+# Result backend settings - Example using Redis
+# Stores the state and results of tasks.
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0' 
+
+# Content types accepted for tasks
+CELERY_ACCEPT_CONTENT = ['json', 'pickle'] # Changed to include pickle for more complex args if needed, json is safer.
+
+# Task serialization format
+CELERY_TASK_SERIALIZER = 'json' # json is recommended for security and interoperability
+
+# Result serialization format
+CELERY_RESULT_SERIALIZER = 'json'
+
+# Timezone for Celery. It's important for scheduling tasks correctly.
+# Should match your Django project's TIME_ZONE if possible.
+# Example: 'UTC' or 'America/New_York'
+CELERY_TIMEZONE = 'Asia/Shanghai' # Replace with your project's timezone
+
+# Optional: For more robust task state updates, especially if using Django ORM as backend (django-celery-results)
+# CELERY_RESULT_EXTENDED = True 
+
+# Optional: Task tracking settings
+# CELERY_TASK_TRACK_STARTED = True # If you want to track when tasks start
+
+# Celery Beat Settings (for periodic tasks)
+# This schedule will be used by Celery Beat to dispatch tasks at specified intervals.
+CELERY_BEAT_SCHEDULE = {
+    'scrape-news-every-15-minutes': {
+        'task': 'newsfeed.tasks.task_scrape_and_process_news',  # Name of the task (app_name.tasks.task_function_name)
+        'schedule': 900.0,  # Run every 15 minutes (15 * 60 seconds)
+        # 'args': (arg1, arg2), # Optional arguments for the task
+        # 'kwargs': {'key': 'value'}, # Optional keyword arguments
+        # 'options': {'queue': 'periodic_tasks'}, # Optional: route to a specific queue
+    },
+    'scrape-ai-tools-daily': {
+        'task': 'aitools.tasks.task_scrape_all_tools', # Placeholder task name
+        'schedule': 86400.0,  # Run every 24 hours (24 * 60 * 60 seconds)
+        # Example: Run at a specific time each day using crontab schedule
+        # from celery.schedules import crontab
+        # 'schedule': crontab(hour=3, minute=30), # Runs daily at 3:30 AM (server time, considering CELERY_TIMEZONE)
+    },
+    # Example: A task that runs every Monday morning
+    # 'monday-morning-task': {
+    #     'task': 'myapp.tasks.my_monday_task',
+    #     'schedule': crontab(hour=7, minute=30, day_of_week=1), # 1 is Monday
+    # },
+}
+
+# Optional: If you are using django-celery-beat for storing schedule in DB
+# CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+# This requires installing django-celery-beat and adding it to INSTALLED_APPS
+# pip install django-celery-beat
+# INSTALLED_APPS = (
+#     ...
+#     'django_celery_beat',
+# )
+# Then run migrations: python manage.py migrate
+# Using DatabaseScheduler allows managing periodic tasks via Django Admin.
+# If not using DatabaseScheduler, the CELERY_BEAT_SCHEDULE defined in settings will be used.
