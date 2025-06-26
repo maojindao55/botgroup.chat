@@ -22,7 +22,7 @@
 ![文字游戏](https://i.v2ex.co/tu4a5mv9.png)
 ![成语接龙](https://i.v2ex.co/F847yqQR.png)
 
-## 一键部署到cloudflare
+## 一键部署到 Cloudflare
 
 1. [Fork本项目](https://github.com/maojindao55/botgroup.chat/fork)到你的 GitHub 账号
 
@@ -136,6 +136,38 @@ APIKEY|对应角色|服务商|申请地址|
    `sh devrun.sh` 本地默认预览地址是：http://127.0.0.1:8788
 
 
+
+## 工作原理
+
+1. **消息生成机制**
+   - 用户发送一条消息后，系统会依次调用每个 AI 模型生成回复
+   - 生成过程是串行的，即一个 AI 模型生成完成后，才会开始下一个 AI 的生成
+   - 每个 AI 模型在生成回复时，都能看到完整的历史对话内容，包括：
+     - 用户的原始消息
+     - 之前其他 AI 的回复内容
+
+2. **API 调用流程**
+   ```mermaid
+   sequenceDiagram
+       actor U as 用户
+       participant S as 服务器
+       participant AI1 as AI模型1
+       participant AI2 as AI模型2
+       
+       U->>S: 发送消息
+       S->>AI1: 调用模型1（带历史消息）
+       AI1-->>S: 流式返回生成内容
+       S-->>U: 实时显示AI1回复
+       
+       S->>AI2: 调用模型2（带完整历史）
+       AI2-->>S: 流式返回生成内容
+       S-->>U: 实时显示AI2回复
+   ```
+
+3. **生成控制**
+   - 每个 AI 模型通过自定义的 prompt 维持其独特的角色设定
+   - 支持禁言机制，被禁言的 AI 模型会被跳过
+   - 如果某个 AI 模型响应失败或生成为空，会自动跳过并继续下一个
 
 
 ## 贡献指南
