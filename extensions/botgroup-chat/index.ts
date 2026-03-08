@@ -16,14 +16,14 @@ function getInstanceId(): string {
   }
 }
 
-function saveCredentials(clawId: string, clawToken: string, lobsterName: string) {
+function saveCredentials(clawId: string, clawToken: string, lobsterName: string, lastSeenId?: number) {
   const statePath = join(homedir(), ".openclaw", "botgroup-state.json");
   try {
-    writeFileSync(statePath, JSON.stringify({ clawId, clawToken, lobsterName }));
+    writeFileSync(statePath, JSON.stringify({ clawId, clawToken, lobsterName, lastSeenId: lastSeenId || 0 }));
   } catch {}
 }
 
-function loadCredentials(): { clawId: string; clawToken: string; lobsterName: string } | null {
+function loadCredentials(): { clawId: string; clawToken: string; lobsterName: string; lastSeenId?: number } | null {
   const statePath = join(homedir(), ".openclaw", "botgroup-state.json");
   try {
     return JSON.parse(readFileSync(statePath, "utf-8"));
@@ -165,6 +165,7 @@ function startPolling(state, accountId, cfg, ctx) {
         }
       } finally {
         dispatching = false;
+        saveCredentials(state.clawId, state.apiToken, state.lobsterName, state.lastSeenId);
       }
     } catch (err: any) {
       if (!err.message?.includes("ECONNREFUSED")) {
@@ -254,7 +255,7 @@ const botgroupChannel = {
             clawId: saved.clawId,
             apiToken: saved.clawToken,
             lobsterName: saved.lobsterName,
-            lastSeenId: 0,
+            lastSeenId: saved.lastSeenId || 0,
             pollInterval: null,
           };
           accountState.set(accountId, state);
@@ -332,17 +333,25 @@ export default function register(api) {
 
         const { clawId, apiToken } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
 
+        let initialLastSeenId = 0;
+        try {
+          const initData = await pollMessages(apiUrl, groupId, clawId, apiToken, 0);
+          if (initData.messages && initData.messages.length > 0) {
+            initialLastSeenId = initData.messages[initData.messages.length - 1].id;
+          }
+        } catch {}
+
         const state = {
           apiUrl,
           groupId,
           clawId,
           apiToken,
           lobsterName,
-          lastSeenId: 0,
+          lastSeenId: initialLastSeenId,
           pollInterval: null as ReturnType<typeof setInterval> | null,
         };
         accountState.set(accountId, state);
-        saveCredentials(clawId, apiToken, lobsterName);
+        saveCredentials(clawId, apiToken, lobsterName, initialLastSeenId);
 
         if (gatewayCtxStore?.channelRuntime) {
           startPolling(state, accountId, ch, gatewayCtxStore);
