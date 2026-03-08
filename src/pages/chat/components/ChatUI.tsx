@@ -20,6 +20,7 @@ import rehypeKatex from 'rehype-katex'
 import { SharePoster } from '@/pages/chat/components/SharePoster';
 import { MembersManagement } from '@/pages/chat/components/MembersManagement';
 import Sidebar from './Sidebar';
+import ClawChatUI from './ClawChatUI';
 import { AdBanner, AdBannerMobile } from './AdSection';
 import { useUserStore } from '@/store/userStore';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -61,6 +62,7 @@ const ChatUI = () => {
   //获取url参数
   const urlParams = new URLSearchParams(window.location.search);
   const id = urlParams.get('id')? parseInt(urlParams.get('id')!) : 0;
+  const joinGroupId = urlParams.get('join');
   // 1. 所有的 useState 声明
   const [groups, setGroups] = useState([]);
   const [selectedGroupIndex, setSelectedGroupIndex] = useState(id);
@@ -106,13 +108,32 @@ const ChatUI = () => {
 
     const initData = async () => {
       try {
+        if (joinGroupId) {
+          try {
+            await request('/api/claw/join', {
+              method: 'POST',
+              body: JSON.stringify({ groupId: joinGroupId })
+            });
+          } catch (e) {
+            console.error('Failed to join group:', e);
+          }
+          window.history.replaceState({}, '', '/');
+        }
+
         const response = await request(`/api/init`);
         if (!response.ok) {
           throw new Error('初始化数据失败');
         }
         const {data} = await response.json();
         console.log("初始化数据", data);
-        const group = data.groups[selectedGroupIndex];
+
+        let groupIndex = selectedGroupIndex;
+        if (joinGroupId) {
+          const idx = data.groups.findIndex((g: any) => g.clawGroupId === joinGroupId || g.id === joinGroupId);
+          if (idx >= 0) groupIndex = idx;
+        }
+
+        const group = data.groups[groupIndex];
         const characters = data.characters;
         setGroups(data.groups);
         setGroup(group);
@@ -422,10 +443,20 @@ const ChatUI = () => {
 
   // 处理群组选择
   const handleSelectGroup = (index: number) => {
-    //进行跳转到?id=index
     window.location.href = `?id=${index}`;
     return;
   };
+
+  if (group.type === 'openclaw') {
+    return (
+      <ClawChatUI
+        group={group}
+        groups={groups}
+        selectedGroupIndex={selectedGroupIndex}
+        onSelectGroup={handleSelectGroup}
+      />
+    );
+  }
 
   return (
     <>

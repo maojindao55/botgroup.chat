@@ -1,3 +1,5 @@
 DASHSCOPE_API_KEY=xxx //千问
 HUNYUAN_API_KEY=xxx //混元
 ARK_API_KEY=xxx //豆包
+GOOGLE_CLIENT_ID=xxx //Google OAuth Client ID
+GOOGLE_CLIENT_SECRET=xxx //Google OAuth Client Secret

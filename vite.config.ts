@@ -11,14 +11,6 @@ export default defineConfig({
     port: 3000,
     open: true,
     host: true,
-    // 代理配置解决跨域问题
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8082',
-        changeOrigin: true,
-        secure: false
-      }
-    }
   },
   resolve: {
     alias: {
