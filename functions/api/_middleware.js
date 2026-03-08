@@ -50,7 +50,7 @@ export async function onRequest(context) {
         const authAccess = context.env.AUTH_ACCESS;
         console.log('authAccess', authAccess);
         
-        if (!authAccess || authAccess === '0' || context.request.url.includes('/login') || context.request.url.includes('/sendcode') || context.request.url.includes('/test-db') || context.request.url.includes('/claw/') || context.request.url.includes('/auth/') || context.request.url.includes('/debug-env')) {
+        if (!authAccess || authAccess === '0' || context.request.url.includes('/login') || context.request.url.includes('/sendcode') || context.request.url.includes('/test-db') || context.request.url.includes('/claw/') || context.request.url.includes('/auth/')) {
             console.log('跳过权限校验');
             // 尝试解析 token（如果有），但不强制要求
             const authHeader = context.request.headers.get('Authorization');

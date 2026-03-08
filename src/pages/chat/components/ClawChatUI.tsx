@@ -60,6 +60,9 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
   const [copied, setCopied] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedConfig, setCopiedConfig] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState(false);
+  const [activeTab, setActiveTab] = useState<'config' | 'command'>('config');
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const isLoadingHistoryRef = useRef(false);
@@ -283,7 +286,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                   {showInvite && (
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setShowInvite(false)} />
-                      <div className="absolute right-0 top-10 z-40 bg-white rounded-lg shadow-lg border p-4 w-72">
+                      <div className="absolute right-0 top-10 z-40 bg-white rounded-lg shadow-lg border p-4 w-80">
                         <div className="text-sm font-medium mb-3">邀请好友加入</div>
                         <button
                           onClick={() => {
@@ -298,21 +301,53 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                         </button>
                         <div className="border-t pt-3">
                           <div className="text-sm font-medium mb-2">接入 OpenClaw 龙虾</div>
-                          <div className="flex items-center gap-2 bg-gray-50 rounded px-3 py-2 mb-2">
-                            <span className="text-xs text-gray-500">群ID:</span>
-                            <code className="text-sm text-gray-700 font-mono flex-1">{group.clawGroupId}</code>
+                          <div className="flex rounded-lg bg-gray-100 p-0.5 mb-3">
                             <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(group.clawGroupId || '');
-                                setCopied(true);
-                                setTimeout(() => setCopied(false), 2000);
-                              }}
-                              className="p-1 hover:bg-gray-200 rounded transition-colors"
+                              onClick={() => setActiveTab('config')}
+                              className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${activeTab === 'config' ? 'bg-[#ff6600] text-white' : 'text-gray-600 hover:text-gray-900'}`}
                             >
-                              {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-400" />}
+                              配置文件
+                            </button>
+                            <button
+                              onClick={() => setActiveTab('command')}
+                              className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${activeTab === 'command' ? 'bg-[#ff6600] text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                            >
+                              一键命令
                             </button>
                           </div>
-                          <p className="text-xs text-gray-400">注册 OpenClaw 实例时，将 groupId 设为此 ID 即可加入</p>
+                          {activeTab === 'config' ? (
+                            <>
+                              <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre">{JSON.stringify({ channels: { botgroup: { apiUrl: window.location.origin, groupId: group.clawGroupId, lobsterName: "My Lobster", pollIntervalMs: 10000 } } }, null, 2)}</pre>
+                              <p className="text-xs text-gray-400 mt-2 mb-2">粘贴到 openclaw.json 的 channels 配置中</p>
+                              <button
+                                onClick={() => {
+                                  const config = JSON.stringify({ channels: { botgroup: { apiUrl: window.location.origin, groupId: group.clawGroupId, lobsterName: "My Lobster", pollIntervalMs: 10000 } } }, null, 2);
+                                  navigator.clipboard.writeText(config);
+                                  setCopiedConfig(true);
+                                  setTimeout(() => setCopiedConfig(false), 2000);
+                                }}
+                                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 border border-[#ff6600] text-[#ff6600] hover:bg-orange-50 text-xs rounded-lg transition-colors"
+                              >
+                                {copiedConfig ? <><Check className="w-3 h-3" /> 已复制</> : <><Copy className="w-3 h-3" /> 复制配置</>}
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">{`openclaw plugin install botgroup-chat && openclaw config set channels.botgroup.apiUrl ${window.location.origin} && openclaw config set channels.botgroup.groupId ${group.clawGroupId} && openclaw config set channels.botgroup.lobsterName "My Lobster"`}</pre>
+                              <p className="text-xs text-gray-400 mt-2 mb-2">在终端中运行此命令，然后执行 /botgroup 加入群聊</p>
+                              <button
+                                onClick={() => {
+                                  const cmd = `openclaw plugin install botgroup-chat && openclaw config set channels.botgroup.apiUrl ${window.location.origin} && openclaw config set channels.botgroup.groupId ${group.clawGroupId} && openclaw config set channels.botgroup.lobsterName "My Lobster"`;
+                                  navigator.clipboard.writeText(cmd);
+                                  setCopiedCommand(true);
+                                  setTimeout(() => setCopiedCommand(false), 2000);
+                                }}
+                                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 border border-[#ff6600] text-[#ff6600] hover:bg-orange-50 text-xs rounded-lg transition-colors"
+                              >
+                                {copiedCommand ? <><Check className="w-3 h-3" /> 已复制</> : <><Copy className="w-3 h-3" /> 复制命令</>}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     </>
