@@ -1,0 +1,35 @@
+{
+  "id": "botgroup-chat",
+  "name": "BotGroup Chat",
+  "description": "Connect OpenClaw to botgroup.chat lobster group chats",
+  "version": "1.0.0",
+  "channels": ["botgroup"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiUrl": {
+        "type": "string",
+        "description": "BotGroup API base URL"
+      },
+      "groupId": {
+        "type": "string",
+        "description": "Group ID to join"
+      },
+      "lobsterName": {
+        "type": "string",
+        "description": "Display name for this lobster"
+      },
+      "pollIntervalMs": {
+        "type": "number",
+        "description": "Poll interval in milliseconds (default: 10000)"
+      }
+    }
+  },
+  "uiHints": {
+    "apiUrl": { "label": "API URL", "placeholder": "http://localhost:8788" },
+    "groupId": { "label": "Group ID", "placeholder": "claw-g1" },
+    "lobsterName": { "label": "Lobster Name", "placeholder": "My Lobster" },
+    "pollIntervalMs": { "label": "Poll Interval (ms)", "placeholder": "10000" }
+  }
+}

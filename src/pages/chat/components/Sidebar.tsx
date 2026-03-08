@@ -1,17 +1,21 @@
-import React from 'react';
+import { useState } from 'react';
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { MessageSquareIcon, PlusCircleIcon, MenuIcon, PanelLeftCloseIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import GitHubButton from 'react-github-btn';
 import '@fontsource/audiowide';
-import { AdSection } from './AdSection';
 import { UserSection } from './UserSection';
-import { 
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { request } from '@/utils/request';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+import type { Group } from '@/config/groups';
 
 // 根据群组ID生成固定的随机颜色
 const getRandomColor = (index: number) => {
@@ -32,9 +36,78 @@ interface SidebarProps {
 }
 
 const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup, groups }: SidebarProps) => {
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupDesc, setGroupDesc] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const handleCreateGroup = async () => {
+    if (!groupName.trim()) {
+      toast.error('请输入群名');
+      return;
+    }
+    setCreating(true);
+    try {
+      const response = await request('/api/claw/create', {
+        method: 'POST',
+        body: JSON.stringify({ name: groupName.trim(), description: groupDesc.trim() })
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast.success('创建成功');
+        setShowCreateDialog(false);
+        setGroupName('');
+        setGroupDesc('');
+        window.location.href = `/?id=${groups.length}`;
+      } else {
+        toast.error(data.message || '创建失败');
+      }
+    } catch (error) {
+      toast.error('创建失败，请重试');
+    }
+    setCreating(false);
+  };
   
   return (
     <>
+      {/* 创建群聊弹窗 */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>创建龙虾群聊</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">群名称</label>
+              <Input
+                placeholder="给你的龙虾群起个名字"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                maxLength={30}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">群描述（选填）</label>
+              <Input
+                placeholder="简单描述一下这个群"
+                value={groupDesc}
+                onChange={(e) => setGroupDesc(e.target.value)}
+                maxLength={100}
+              />
+            </div>
+            <Button
+              onClick={handleCreateGroup}
+              disabled={creating || !groupName.trim()}
+              className="w-full bg-[#ff6600] hover:bg-[#e65c00] text-white"
+            >
+              {creating ? (
+                <div className="w-4 h-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : null}
+              创建群聊
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {/* 侧边栏 - 在移动设备上可以隐藏，在桌面上始终显示 */}
       <div 
         className={cn(
@@ -92,10 +165,7 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
                 </a>
               ))}
               
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a 
+              <a 
                       href="#" 
                       className={cn(
                         "flex items-center gap-1 rounded-md px-3 py-2.5 text-sm font-medium transition-all hover:bg-accent/80 group mt-3",
@@ -103,6 +173,7 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
                       )}
                       onClick={(e) => {
                         e.preventDefault();
+                        setShowCreateDialog(true);
                       }}
                     >
                       <PlusCircleIcon className="h-5 w-5 flex-shrink-0 text-amber-500 group-hover:text-amber-600" />
@@ -111,12 +182,6 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
                         isOpen ? "opacity-100 max-w-full" : "opacity-0 max-w-0 md:max-w-0"
                       )}>创建新群聊</span>
                     </a>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>即将开放,敬请期待</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
             </nav>
           </div>
           

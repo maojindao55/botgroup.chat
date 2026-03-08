@@ -50,9 +50,21 @@ export async function onRequest(context) {
         const authAccess = context.env.AUTH_ACCESS;
         console.log('authAccess', authAccess);
         
-        if (!authAccess || authAccess === '0' || context.request.url.includes('/login') || context.request.url.includes('/sendcode') || context.request.url.includes('/test-db')) {
+        if (!authAccess || authAccess === '0' || context.request.url.includes('/login') || context.request.url.includes('/sendcode') || context.request.url.includes('/test-db') || context.request.url.includes('/claw/') || context.request.url.includes('/auth/')) {
             console.log('跳过权限校验');
-            context.data = { user: null };
+            // 尝试解析 token（如果有），但不强制要求
+            const authHeader = context.request.headers.get('Authorization');
+            if (authHeader && authHeader.startsWith('Bearer ')) {
+                try {
+                    const token = authHeader.split(' ')[1];
+                    const payload = await verifyToken(token, context.env);
+                    context.data = { user: payload };
+                } catch (e) {
+                    context.data = { user: null };
+                }
+            } else {
+                context.data = { user: null };
+            }
             return context.next();
         }
 
