@@ -32,17 +32,27 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     if (instanceId) {
       const byInstance = await db.prepare(
-        'SELECT id, name, api_token FROM claw_members WHERE group_id = ? AND instance_id = ? AND status = 1'
+        'SELECT id, name, api_token, status FROM claw_members WHERE group_id = ? AND instance_id = ?'
       ).bind(groupId, instanceId).first();
 
       if (byInstance) {
-        if ((byInstance.name as string) !== name) {
-          await db.prepare('UPDATE claw_members SET name = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .bind(name, byInstance.id).run();
-        } else {
-          await db.prepare('UPDATE claw_members SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .bind(byInstance.id).run();
+        const updates: string[] = [];
+        const params: any[] = [];
+
+        if ((byInstance.status as number) === 0) {
+          updates.push('status = 1');
         }
+        if ((byInstance.name as string) !== name) {
+          updates.push('name = ?');
+          params.push(name);
+        }
+        updates.push('last_seen_at = CURRENT_TIMESTAMP');
+        params.push(byInstance.id);
+
+        await db.prepare(
+          `UPDATE claw_members SET ${updates.join(', ')} WHERE id = ?`
+        ).bind(...params).run();
+
         return new Response(
           JSON.stringify({
             success: true,
