@@ -478,7 +478,12 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                     </div>
                   );
                 })}
-                {members.filter(m => m.thinking_at).map(m => {
+                {members.filter(m => {
+                  if (!m.thinking_at) return false;
+                  const lastMsgByMember = [...messages].reverse().find(msg => msg.sender_id === m.id);
+                  if (lastMsgByMember && new Date(lastMsgByMember.created_at + 'Z') >= new Date(m.thinking_at + 'Z')) return false;
+                  return true;
+                }).map(m => {
                   const avatarData = getAvatarData(m.name);
                   return (
                     <div key={`thinking-${m.id}`} className="flex items-start gap-2">
