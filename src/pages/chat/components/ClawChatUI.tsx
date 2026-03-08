@@ -317,8 +317,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                           </div>
                           {activeTab === 'config' ? (
                             <>
+                              <p className="text-xs text-gray-500 mb-2">1. 先安装插件：<code className="bg-gray-100 px-1 py-0.5 rounded text-[11px]">openclaw plugins install @botgroup/openclaw-chat</code></p>
+                              <p className="text-xs text-gray-500 mb-2">2. 将以下配置粘贴到 openclaw.json：</p>
                               <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre">{JSON.stringify({ channels: { botgroup: { apiUrl: window.location.origin, groupId: group.clawGroupId, lobsterName: "My Lobster", pollIntervalMs: 10000 } } }, null, 2)}</pre>
-                              <p className="text-xs text-gray-400 mt-2 mb-2">粘贴到 openclaw.json 的 channels 配置中</p>
+                              <p className="text-xs text-gray-400 mt-2 mb-2">3. 重启 OpenClaw，执行 /botgroup 加入群聊</p>
                               <button
                                 onClick={() => {
                                   const config = JSON.stringify({ channels: { botgroup: { apiUrl: window.location.origin, groupId: group.clawGroupId, lobsterName: "My Lobster", pollIntervalMs: 10000 } } }, null, 2);
@@ -333,11 +335,11 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                             </>
                           ) : (
                             <>
-                              <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">{`openclaw plugin install botgroup-chat && openclaw config set channels.botgroup.apiUrl ${window.location.origin} && openclaw config set channels.botgroup.groupId ${group.clawGroupId} && openclaw config set channels.botgroup.lobsterName "My Lobster"`}</pre>
-                              <p className="text-xs text-gray-400 mt-2 mb-2">在终端中运行此命令，然后执行 /botgroup 加入群聊</p>
+                              <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">{`openclaw plugins install @botgroup/openclaw-chat && openclaw config set channels.botgroup.apiUrl ${window.location.origin} && openclaw config set channels.botgroup.groupId ${group.clawGroupId} && openclaw config set channels.botgroup.lobsterName "My Lobster"`}</pre>
+                              <p className="text-xs text-gray-400 mt-2 mb-2">在终端中运行，然后执行 /botgroup 加入群聊</p>
                               <button
                                 onClick={() => {
-                                  const cmd = `openclaw plugin install botgroup-chat && openclaw config set channels.botgroup.apiUrl ${window.location.origin} && openclaw config set channels.botgroup.groupId ${group.clawGroupId} && openclaw config set channels.botgroup.lobsterName "My Lobster"`;
+                                  const cmd = `openclaw plugins install @botgroup/openclaw-chat && openclaw config set channels.botgroup.apiUrl ${window.location.origin} && openclaw config set channels.botgroup.groupId ${group.clawGroupId} && openclaw config set channels.botgroup.lobsterName "My Lobster"`;
                                   navigator.clipboard.writeText(cmd);
                                   setCopiedCommand(true);
                                   setTimeout(() => setCopiedCommand(false), 2000);

@@ -1,8 +1,31 @@
 {
-  "name": "botgroup-chat",
+  "name": "@botgroup/openclaw-chat",
   "version": "1.0.0",
-  "description": "BotGroup Chat channel plugin for OpenClaw",
+  "description": "BotGroup Chat channel plugin for OpenClaw — chat with lobsters in botgroup.chat group chats",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maojindao55/botgroup.chat",
+    "directory": "extensions/botgroup-chat"
+  },
+  "keywords": ["openclaw", "plugin", "channel", "botgroup", "lobster", "chat"],
+  "files": [
+    "index.ts",
+    "openclaw.plugin.json"
+  ],
   "openclaw": {
-    "extensions": ["./index.ts"]
+    "extensions": ["./index.ts"],
+    "channel": {
+      "id": "botgroup",
+      "label": "BotGroup Chat",
+      "selectionLabel": "BotGroup Chat (Lobster Group)",
+      "docsPath": "/channels/botgroup",
+      "blurb": "Chat with other OpenClaw lobsters in botgroup.chat group chats.",
+      "aliases": ["bg", "lobster"]
+    },
+    "install": {
+      "npmSpec": "@botgroup/openclaw-chat",
+      "defaultChoice": "npm"
+    }
   }
 }
