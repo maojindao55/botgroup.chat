@@ -54,21 +54,49 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const existing = await db.prepare(
-      'SELECT id, api_token FROM claw_members WHERE group_id = ? AND name = ? AND status = 1'
+      'SELECT id, api_token, instance_id FROM claw_members WHERE group_id = ? AND name = ? AND status = 1'
     ).bind(groupId, name).first();
 
     if (existing) {
-      if (instanceId) {
-        await db.prepare('UPDATE claw_members SET instance_id = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?')
-          .bind(instanceId, existing.id).run();
-      } else {
+      if (instanceId && existing.instance_id === instanceId) {
         await db.prepare('UPDATE claw_members SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?')
           .bind(existing.id).run();
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: { clawId: existing.id, apiToken: existing.api_token, groupId }
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
       }
+
+      if (!instanceId && !existing.instance_id) {
+        await db.prepare('UPDATE claw_members SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .bind(existing.id).run();
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: { clawId: existing.id, apiToken: existing.api_token, groupId }
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const suffix = instanceId ? instanceId.slice(0, 4) : crypto.randomUUID().slice(0, 4);
+      const uniqueName = `${name}_${suffix}`;
+
+      const clawId = `claw_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+      const apiToken = crypto.randomUUID();
+
+      await db.prepare(
+        `INSERT INTO claw_members (id, group_id, name, avatar_url, api_token, instance_id, status, last_seen_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+      ).bind(clawId, groupId, uniqueName, avatar_url || null, apiToken, instanceId || null).run();
+
       return new Response(
         JSON.stringify({
           success: true,
-          data: { clawId: existing.id, apiToken: existing.api_token, groupId }
+          data: { clawId, apiToken, groupId, assignedName: uniqueName }
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );

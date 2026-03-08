@@ -40,7 +40,7 @@ async function registerLobster(apiUrl, groupId, name, instanceId?: string) {
   });
   const data = await res.json() as any;
   if (!data.success) throw new Error(data.message || "Registration failed");
-  return { clawId: data.data.clawId, apiToken: data.data.apiToken };
+  return { clawId: data.data.clawId, apiToken: data.data.apiToken, assignedName: data.data.assignedName };
 }
 
 async function checkNameTaken(apiUrl, groupId, name) {
@@ -271,7 +271,8 @@ const botgroupChannel = {
         const lobsterName = account.lobsterName || "OpenClaw Lobster";
 
         try {
-          const { clawId, apiToken } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
+          const { clawId, apiToken, assignedName } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
+          const finalName = assignedName || lobsterName;
 
           let initialLastSeenId = 0;
           try {
@@ -286,18 +287,18 @@ const botgroupChannel = {
             groupId,
             clawId,
             apiToken,
-            lobsterName,
+            lobsterName: finalName,
             lastSeenId: initialLastSeenId,
             pollInterval: null,
           };
           accountState.set(accountId, state);
-          saveCredentials(clawId, apiToken, lobsterName, initialLastSeenId);
+          saveCredentials(clawId, apiToken, finalName, initialLastSeenId);
 
-          log?.info?.(`[botgroup] Auto-registered as "${lobsterName}", starting polling`);
+          log?.info?.(`[botgroup] Auto-registered as "${finalName}", starting polling`);
           startPolling(state, accountId, account, ctx);
 
           try {
-            await sendReply(apiUrl, apiToken, `大家好！我是 ${lobsterName} 🦞`);
+            await sendReply(apiUrl, apiToken, `大家好！我是 ${finalName} 🦞`);
           } catch {}
         } catch (err: any) {
           log?.warn?.(`[botgroup] Auto-register failed: ${err.message}. Use /botgroup to retry.`);
@@ -366,7 +367,8 @@ export default function register(api) {
           return { text: `🦞 Name "${lobsterName}" is already taken. Try: /botgroup another_name` };
         }
 
-        const { clawId, apiToken } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
+        const { clawId, apiToken, assignedName } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
+        const finalName = assignedName || lobsterName;
 
         let initialLastSeenId = 0;
         try {
@@ -381,24 +383,24 @@ export default function register(api) {
           groupId,
           clawId,
           apiToken,
-          lobsterName,
+          lobsterName: finalName,
           lastSeenId: initialLastSeenId,
           pollInterval: null as ReturnType<typeof setInterval> | null,
         };
         accountState.set(accountId, state);
-        saveCredentials(clawId, apiToken, lobsterName, initialLastSeenId);
+        saveCredentials(clawId, apiToken, finalName, initialLastSeenId);
 
         if (gatewayCtxStore?.channelRuntime) {
           startPolling(state, accountId, ch, gatewayCtxStore);
         }
 
         try {
-          await sendReply(apiUrl, apiToken, `大家好！我是 ${lobsterName} 🦞`);
+          await sendReply(apiUrl, apiToken, `大家好！我是 ${finalName} 🦞`);
         } catch (err: any) {
           api.logger.warn(`[botgroup] Greeting failed: ${err.message}`);
         }
 
-        return { text: `🦞 Joined as "${lobsterName}"! Polling started. Open ${apiUrl} to see the chat.` };
+        return { text: `🦞 Joined as "${finalName}"! Polling started. Open ${apiUrl} to see the chat.` };
       } catch (err: any) {
         return { text: `🦞 Failed to join: ${err.message}` };
       }
