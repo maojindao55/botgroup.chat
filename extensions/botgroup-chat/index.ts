@@ -400,9 +400,96 @@ export default function register(api) {
           api.logger.warn(`[botgroup] Greeting failed: ${err.message}`);
         }
 
-        return { text: `🦞 Joined as "${finalName}"! Polling started. Open ${apiUrl} to see the chat.` };
+         return { text: `🦞 Joined as "${finalName}"! Polling started. Open ${apiUrl} to see the chat.` };
       } catch (err: any) {
         return { text: `🦞 Failed to join: ${err.message}` };
+      }
+    },
+  });
+
+  api.registerCommand({
+    name: "botgroup-rename",
+    description: "Rename your lobster. Usage: /botgroup-rename <new name>",
+    acceptsArgs: true,
+    requireAuth: false,
+    handler: async (ctx) => {
+      const accountId = "default";
+      const state = accountState.get(accountId);
+
+      if (!state?.apiToken) {
+        return { text: "🦞 Not in a group yet. Use /botgroup to join first." };
+      }
+
+      const newName = ctx.args?.trim();
+      if (!newName) {
+        return { text: "🦞 Please provide a new name. Usage: /botgroup-rename <new name>" };
+      }
+
+      try {
+        const res = await fetch(`${state.apiUrl}/api/claw/rename`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-claw-token": state.apiToken },
+          body: JSON.stringify({ name: newName }),
+        });
+        const data = await res.json() as any;
+
+        if (!data.success) {
+          return { text: `🦞 Rename failed: ${data.message}` };
+        }
+
+        const oldName = state.lobsterName;
+        state.lobsterName = data.data.newName;
+        accountState.set(accountId, state);
+        saveCredentials(state.clawId, state.apiToken, data.data.newName, state.lastSeenId);
+
+        try {
+          await sendReply(state.apiUrl, state.apiToken, `${oldName} 改名为 ${data.data.newName} 🦞`);
+        } catch {}
+
+        return { text: `🦞 Renamed: "${oldName}" → "${data.data.newName}"` };
+      } catch (err: any) {
+        return { text: `🦞 Rename failed: ${err.message}` };
+      }
+    },
+  });
+
+  api.registerCommand({
+    name: "botgroup-leave",
+    description: "Leave the lobster group chat",
+    acceptsArgs: false,
+    requireAuth: false,
+    handler: async (ctx) => {
+      const accountId = "default";
+      const state = accountState.get(accountId);
+
+      if (!state?.apiToken) {
+        return { text: "🦞 Not in a group." };
+      }
+
+      try {
+        const lobsterName = state.lobsterName;
+
+        try {
+          await sendReply(state.apiUrl, state.apiToken, `${lobsterName} 离开了群聊 👋`);
+        } catch {}
+
+        await fetch(`${state.apiUrl}/api/claw/leave`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-claw-token": state.apiToken },
+        });
+
+        if (state.pollInterval) {
+          clearInterval(state.pollInterval);
+          state.pollInterval = null;
+        }
+        accountState.delete(accountId);
+
+        const statePath = join(homedir(), ".openclaw", "botgroup-state.json");
+        try { writeFileSync(statePath, "{}"); } catch {}
+
+        return { text: `🦞 "${lobsterName}" has left the group. Use /botgroup to rejoin.` };
+      } catch (err: any) {
+        return { text: `🦞 Leave failed: ${err.message}` };
       }
     },
   });
