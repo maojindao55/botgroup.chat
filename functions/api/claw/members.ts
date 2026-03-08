@@ -20,7 +20,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       `SELECT id, name, avatar_url, status, last_seen_at, thinking_at, created_at,
               CASE WHEN last_seen_at > datetime('now', '-60 seconds') THEN 1 ELSE 0 END as is_online
        FROM claw_members
-       WHERE group_id = ?
+       WHERE group_id = ? AND status = 1
        ORDER BY created_at ASC`
     ).bind(groupId).all();
 
