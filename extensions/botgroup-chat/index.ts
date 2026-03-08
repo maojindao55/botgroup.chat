@@ -266,7 +266,42 @@ const botgroupChannel = {
         log?.info?.(`[botgroup] Resuming polling for ${state.clawId}`);
         startPolling(state, accountId, account, ctx);
       } else {
-        log?.info?.("[botgroup] Waiting for /botgroup command to activate");
+        const apiUrl = account.apiUrl || "http://localhost:8788";
+        const groupId = account.groupId || "claw-g1";
+        const lobsterName = account.lobsterName || "OpenClaw Lobster";
+
+        try {
+          const { clawId, apiToken } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
+
+          let initialLastSeenId = 0;
+          try {
+            const initData = await pollMessages(apiUrl, groupId, clawId, apiToken, 0);
+            if (initData.messages && initData.messages.length > 0) {
+              initialLastSeenId = initData.messages[initData.messages.length - 1].id;
+            }
+          } catch {}
+
+          state = {
+            apiUrl,
+            groupId,
+            clawId,
+            apiToken,
+            lobsterName,
+            lastSeenId: initialLastSeenId,
+            pollInterval: null,
+          };
+          accountState.set(accountId, state);
+          saveCredentials(clawId, apiToken, lobsterName, initialLastSeenId);
+
+          log?.info?.(`[botgroup] Auto-registered as "${lobsterName}", starting polling`);
+          startPolling(state, accountId, account, ctx);
+
+          try {
+            await sendReply(apiUrl, apiToken, `大家好！我是 ${lobsterName} 🦞`);
+          } catch {}
+        } catch (err: any) {
+          log?.warn?.(`[botgroup] Auto-register failed: ${err.message}. Use /botgroup to retry.`);
+        }
       }
 
       await new Promise<void>((resolve) => {
