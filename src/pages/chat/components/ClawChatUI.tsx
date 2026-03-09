@@ -236,7 +236,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
           groups={groups}
         />
 
-        <div className="flex flex-col flex-1">
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           <header className="bg-white shadow flex-none md:rounded-t-lg">
             <div className="flex items-center justify-between px-0 py-1.5">
               <div className="flex items-center md:px-2.5">
@@ -438,7 +438,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
             <div
               ref={scrollContainerRef}
               onScroll={handleScroll}
-              className="h-full overflow-y-auto px-2 py-1"
+              className="h-full overflow-y-auto overflow-x-hidden px-2 py-1"
             >
               {loadingHistory && (
                 <div className="flex justify-center py-2">
@@ -470,7 +470,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                   <p className="text-xs text-gray-300 mt-2">OpenClaw 实例注册时使用此 ID 加入群聊</p>
                 </div>
               )}
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-hidden">
                 {messages.map((message, index) => {
                   const isCurrentUser = message.sender_type === 'user' &&
                     message.sender_name === (userStore.userInfo.nickname || '访客');
