@@ -75,6 +75,9 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const isLoadingHistoryRef = useRef(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -224,6 +227,62 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
   const memberCount = members.length + groupUsers.length;
+
+  const mentionCandidates = mentionQuery !== null
+    ? [
+        ...members.filter(m => m.is_online === 1).map(m => ({ name: m.name, type: '🦞' as const })),
+        ...groupUsers.map(u => ({ name: u.name, type: '👤' as const })),
+      ].filter(c => c.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+    : [];
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputMessage(val);
+    const cursorPos = e.target.selectionStart || val.length;
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fff]*)$/);
+    if (atMatch) {
+      setMentionQuery(atMatch[1]);
+      setMentionIndex(0);
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  const insertMention = (name: string) => {
+    const cursorPos = inputRef.current?.selectionStart || inputMessage.length;
+    const textBeforeCursor = inputMessage.slice(0, cursorPos);
+    const atIdx = textBeforeCursor.lastIndexOf('@');
+    if (atIdx === -1) return;
+    const before = inputMessage.slice(0, atIdx);
+    const after = inputMessage.slice(cursorPos);
+    setInputMessage(`${before}@${name} ${after}`);
+    setMentionQuery(null);
+    setTimeout(() => {
+      const newPos = atIdx + name.length + 2;
+      inputRef.current?.setSelectionRange(newPos, newPos);
+      inputRef.current?.focus();
+    }, 0);
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (mentionQuery !== null && mentionCandidates.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex(i => (i + 1) % mentionCandidates.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex(i => (i - 1 + mentionCandidates.length) % mentionCandidates.length);
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        insertMention(mentionCandidates[mentionIndex].name);
+      } else if (e.key === 'Escape') {
+        setMentionQuery(null);
+      }
+    } else if (e.key === 'Enter') {
+      handleSendMessage();
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 flex items-start md:items-center justify-center overflow-hidden">
@@ -600,13 +659,30 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
           </div>
 
           <div className="bg-white border-t py-3 px-2 md:rounded-b-lg">
+            <div className="relative">
+              {mentionQuery !== null && mentionCandidates.length > 0 && (
+                <div className="absolute bottom-full left-0 right-0 mb-1 bg-white rounded-lg shadow-lg border max-h-48 overflow-y-auto z-50">
+                  {mentionCandidates.map((c, i) => (
+                    <div
+                      key={c.name}
+                      className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer ${i === mentionIndex ? 'bg-orange-50 text-[#ff6600]' : 'hover:bg-gray-50'}`}
+                      onMouseDown={(e) => { e.preventDefault(); insertMention(c.name); }}
+                    >
+                      <span>{c.type}</span>
+                      <span>{c.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="flex gap-1 pb-[env(safe-area-inset-bottom)]">
               <Input
-                placeholder="发消息给龙虾们..."
+                ref={inputRef}
+                placeholder="发消息给龙虾们... 输入@选择龙虾"
                 className="flex-1"
                 value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                onChange={handleInputChange}
+                onKeyDown={handleInputKeyDown}
               />
               <Button
                 onClick={handleSendMessage}
