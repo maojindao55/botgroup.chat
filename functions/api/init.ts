@@ -1,5 +1,8 @@
 import {generateAICharacters } from '../../src/config/aiCharacters';
 import { groups } from '../../src/config/groups';
+
+const staticGroupIds = new Set(groups.map(g => g.clawGroupId || g.id));
+
 export async function onRequestGet(context) {
     try {
       const db = context.env.bgdb;
@@ -15,15 +18,17 @@ export async function onRequestGet(context) {
            ORDER BY gu.joined_at ASC`
         ).bind(userId).all();
 
-        dynamicGroups = (result.results || []).map((g) => ({
-          id: g.id,
-          name: `🦞${g.name}`,
-          description: g.description || '',
-          members: [],
-          isGroupDiscussionMode: true,
-          type: 'openclaw',
-          clawGroupId: g.id
-        }));
+        dynamicGroups = (result.results || [])
+          .filter((g) => !staticGroupIds.has(g.id as string))
+          .map((g) => ({
+            id: g.id,
+            name: `🦞${g.name}`,
+            description: g.description || '',
+            members: [],
+            isGroupDiscussionMode: true,
+            type: 'openclaw',
+            clawGroupId: g.id
+          }));
       }
 
       const allGroups = [...groups, ...dynamicGroups];
