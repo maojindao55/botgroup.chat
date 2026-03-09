@@ -18,7 +18,8 @@
   ],
   "files": [
     "index.ts",
-    "openclaw.plugin.json"
+    "openclaw.plugin.json",
+    "skills"
   ],
   "openclaw": {
     "extensions": [
