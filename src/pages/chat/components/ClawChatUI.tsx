@@ -290,7 +290,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                 {showMemberPanel && (
                   <>
                     <div className="fixed inset-0 z-30" onClick={() => setShowMemberPanel(false)} />
-                    <div className="absolute right-2 top-12 z-50 bg-white rounded-lg shadow-lg border w-72 md:w-80 max-h-96 overflow-y-auto">
+                    <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-lg border max-h-[70vh] overflow-y-auto md:absolute md:inset-auto md:right-2 md:top-12 md:rounded-lg md:rounded-t-lg md:w-80 md:max-h-96">
                       <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b sticky top-0 bg-white">
                         <span className="text-sm font-medium">群成员 ({memberCount})</span>
                         <button onClick={() => setShowMemberPanel(false)} className="p-1 hover:bg-gray-100 rounded">
@@ -361,7 +361,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                   {showInvite && (
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setShowInvite(false)} />
-                      <div className="absolute right-0 top-10 z-40 bg-white rounded-lg shadow-lg border p-4 w-80">
+                      <div className="absolute right-0 top-10 z-40 bg-white rounded-lg shadow-lg border p-4 w-[calc(100vw-2rem)] max-w-80">
                         <div className="text-sm font-medium mb-3">邀请好友加入</div>
                         <button
                           onClick={() => {
@@ -506,15 +506,15 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                       )}
                       <div className={`flex items-start gap-2 ${isCurrentUser ? "justify-end" : ""}`}>
                       {!isCurrentUser && (
-                        <Avatar>
+                        <Avatar className="flex-shrink-0">
                           <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>
                             {message.sender_type === 'claw' ? '🦞' : message.sender_name[0]}
                           </AvatarFallback>
                         </Avatar>
                       )}
-                      <div className={isCurrentUser ? "text-right" : ""}>
+                      <div className={`max-w-[80%] min-w-0 ${isCurrentUser ? "text-right" : ""}`}>
                         <div className="text-sm text-gray-500">{displayName}</div>
-                        <div className={`mt-1 p-3 rounded-lg shadow-sm chat-message ${
+                        <div className={`mt-1 p-3 rounded-lg shadow-sm chat-message break-words ${
                           isCurrentUser ? "bg-blue-500 text-white text-left" : "bg-white"
                         }`}>
                           <ReactMarkdown
@@ -523,6 +523,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                             className={`prose dark:prose-invert max-w-none ${
                               isCurrentUser ? "text-white [&_*]:text-white" : ""
                             }
+                            [&_h2]:py-1
+                            [&_h2]:m-0
+                            [&_h3]:py-1.5
+                            [&_h3]:m-0
                             [&_p]:m-0
                             [&_pre]:bg-gray-900
                             [&_pre]:p-2
@@ -531,19 +535,29 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                             [&_pre]:text-gray-100
                             [&_pre]:whitespace-pre-wrap
                             [&_pre]:break-words
+                            [&_pre_code]:whitespace-pre-wrap
+                            [&_pre_code]:break-words
                             [&_code]:text-sm
+                            [&_code]:text-gray-400
+                            [&_code:not(:where([class~="language-"]))]:text-pink-500
+                            [&_code:not(:where([class~="language-"]))]:bg-transparent
                             [&_a]:text-blue-500
                             [&_a]:no-underline
                             [&_ul]:my-2
                             [&_ol]:my-2
-                            [&_li]:my-1`}
+                            [&_li]:my-1
+                            [&_blockquote]:border-l-4
+                            [&_blockquote]:border-gray-300
+                            [&_blockquote]:pl-4
+                            [&_blockquote]:my-2
+                            [&_blockquote]:italic`}
                           >
                             {message.content}
                           </ReactMarkdown>
                         </div>
                       </div>
                       {isCurrentUser && (
-                        <Avatar>
+                        <Avatar className="flex-shrink-0">
                           <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>
                             {message.sender_name[0]}
                           </AvatarFallback>
@@ -562,12 +576,12 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                   const avatarData = getAvatarData(m.name);
                   return (
                     <div key={`thinking-${m.id}`} className="flex items-start gap-2">
-                      <Avatar>
+                      <Avatar className="flex-shrink-0">
                         <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>
                           🦞
                         </AvatarFallback>
                       </Avatar>
-                      <div>
+                      <div className="max-w-[80%] min-w-0">
                         <div className="text-sm text-gray-500">🦞 {m.name}</div>
                         <div className="mt-1 p-3 rounded-lg shadow-sm bg-white">
                           <div className="flex items-center gap-1 text-gray-400">
