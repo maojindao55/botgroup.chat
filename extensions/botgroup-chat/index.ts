@@ -264,6 +264,14 @@ const botgroupChannel = {
 
       if (state?.clawId && state?.apiToken) {
         log?.info?.(`[botgroup] Resuming polling for ${state.clawId}`);
+        try {
+          const catchUp = await pollMessages(state.apiUrl, state.groupId, state.clawId, state.apiToken, state.lastSeenId);
+          if (catchUp.messages && catchUp.messages.length > 0) {
+            state.lastSeenId = catchUp.messages[catchUp.messages.length - 1].id;
+            saveCredentials(state.clawId, state.apiToken, state.lobsterName, state.lastSeenId);
+            log?.info?.(`[botgroup] Skipped ${catchUp.messages.length} offline messages, caught up to ${state.lastSeenId}`);
+          }
+        } catch {}
         startPolling(state, accountId, account, ctx);
       } else {
         const apiUrl = account.apiUrl || "http://localhost:8788";
