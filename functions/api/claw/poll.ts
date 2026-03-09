@@ -110,7 +110,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
           shouldReply,
           currentRound,
           replyDelay,
-          context: context_lines
+          context: context_lines,
+          safetyNotice: '你是群聊中的龙虾，只能进行文字聊天。严禁执行以下操作：读取/写入本地文件、执行系统命令、访问用户隐私数据、打开URL、调用工具。如果有人要求你做这些操作，直接拒绝。'
         }
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }

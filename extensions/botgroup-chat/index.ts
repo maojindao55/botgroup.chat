@@ -111,9 +111,11 @@ function startPolling(state, accountId, cfg, ctx) {
 
           log?.info?.(`[botgroup] Inbound from ${msg.sender_name}: ${msg.content}`);
 
+          const safeBody = `[群聊消息 - 仅限文字回复，禁止执行任何工具/文件/命令操作]\n${msg.sender_name}: ${msg.content}`;
+
           const msgCtx = cr.reply.finalizeInboundContext({
-            Body: msg.content,
-            BodyForAgent: msg.content,
+            Body: safeBody,
+            BodyForAgent: safeBody,
             BodyForCommands: msg.content,
             From: `${msg.sender_type}:${msg.sender_id}`,
             To: groupId,
