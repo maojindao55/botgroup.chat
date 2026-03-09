@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, ChevronLeft, Copy, Check } from 'lucide-react';
+import { Send, ChevronLeft, Copy, Check, X } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -48,6 +48,14 @@ interface ClawChatUIProps {
   onSelectGroup: (index: number) => void;
 }
 
+interface ClawUser {
+  id: number;
+  name: string;
+  avatar_url: string | null;
+  role: string;
+  joined_at: string;
+}
+
 const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawChatUIProps) => {
   const userStore = useUserStore();
   const isMobile = useIsMobile();
@@ -59,6 +67,8 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showMemberPanel, setShowMemberPanel] = useState(false);
+  const [groupUsers, setGroupUsers] = useState<ClawUser[]>([]);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState(false);
@@ -87,6 +97,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
         const response = await request(`/api/claw/members?group=${group.clawGroupId}`);
         const { data } = await response.json();
         setMembers(data.members || []);
+        setGroupUsers(data.users || []);
       } catch (error) {
         console.error('Failed to load members:', error);
       }
@@ -213,7 +224,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
-  const memberCount = members.length + 1;
+  const memberCount = members.length + groupUsers.length;
 
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 flex items-start md:items-center justify-center overflow-hidden">
@@ -240,42 +251,110 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
               </div>
 
               <div className="flex items-center gap-1 pr-2">
-                <div className="flex -space-x-2">
-                  {members.slice(0, 4).map((member) => {
-                    const avatarData = getAvatarData(member.name);
-                    const isOnline = member.is_online === 1;
+                <div className="flex -space-x-2 cursor-pointer" onClick={() => setShowMemberPanel(!showMemberPanel)}>
+                  {[...members.map(m => ({ type: 'claw' as const, id: m.id, name: m.name, avatar_url: m.avatar_url, is_online: m.is_online })),
+                    ...groupUsers.map(u => ({ type: 'user' as const, id: String(u.id), name: u.name, avatar_url: u.avatar_url, is_online: -1 }))
+                  ].slice(0, 5).map((item) => {
+                    const avatarData = getAvatarData(item.name);
                     return (
-                      <TooltipProvider key={member.id}>
+                      <TooltipProvider key={`${item.type}-${item.id}`}>
                         <Tooltip>
                           <TooltipTrigger>
                             <div className="relative">
                               <Avatar className="w-7 h-7 border-2 border-white">
-                                {member.avatar_url ? (
-                                  <AvatarImage src={member.avatar_url} />
+                                {item.avatar_url ? (
+                                  <AvatarImage src={item.avatar_url} />
                                 ) : (
                                   <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>
-                                    {avatarData.text}
+                                    {item.type === 'claw' ? '🦞' : item.name[0]}
                                   </AvatarFallback>
                                 )}
                               </Avatar>
-                              {isOnline && (
+                              {item.type === 'claw' && item.is_online === 1 && (
                                 <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
                               )}
                             </div>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>{isOnline ? '🟢' : '⚪'} 🦞 {member.name}</p>
+                            <p>{item.type === 'claw' ? (item.is_online === 1 ? '🟢' : '⚪') : '👤'} {item.type === 'claw' ? '🦞 ' : ''}{item.name}</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     );
                   })}
-                  {members.length > 4 && (
+                  {(members.length + groupUsers.length) > 5 && (
                     <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-xs border-2 border-white">
-                      +{members.length - 4}
+                      +{members.length + groupUsers.length - 5}
                     </div>
                   )}
                 </div>
+                {showMemberPanel && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setShowMemberPanel(false)} />
+                    <div className="absolute right-2 top-12 z-50 bg-white rounded-lg shadow-lg border w-72 md:w-80 max-h-96 overflow-y-auto">
+                      <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b sticky top-0 bg-white">
+                        <span className="text-sm font-medium">群成员 ({memberCount})</span>
+                        <button onClick={() => setShowMemberPanel(false)} className="p-1 hover:bg-gray-100 rounded">
+                          <X className="w-4 h-4 text-gray-400" />
+                        </button>
+                      </div>
+                      {members.length > 0 && (
+                        <div className="px-4 py-3">
+                          <div className="text-xs text-gray-500 mb-3">🦞 龙虾 ({members.length})</div>
+                          <div className="grid grid-cols-5 gap-3">
+                            {members.map((m) => {
+                              const avatarData = getAvatarData(m.name);
+                              return (
+                                <div key={m.id} className="flex flex-col items-center">
+                                  <div className="relative">
+                                    <Avatar className="w-10 h-10">
+                                      {m.avatar_url ? (
+                                        <AvatarImage src={m.avatar_url} />
+                                      ) : (
+                                        <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>🦞</AvatarFallback>
+                                      )}
+                                    </Avatar>
+                                    {m.is_online === 1 && (
+                                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+                                    )}
+                                  </div>
+                                  <span className="text-xs text-gray-600 mt-1 w-full text-center truncate">{m.name}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {groupUsers.length > 0 && (
+                        <div className="px-4 py-3 border-t">
+                          <div className="text-xs text-gray-500 mb-3">👤 用户 ({groupUsers.length})</div>
+                          <div className="grid grid-cols-5 gap-3">
+                            {groupUsers.map((u) => {
+                              const avatarData = getAvatarData(u.name);
+                              return (
+                                <div key={u.id} className="flex flex-col items-center">
+                                  <div className="relative">
+                                    <Avatar className="w-10 h-10">
+                                      {u.avatar_url ? (
+                                        <AvatarImage src={u.avatar_url} />
+                                      ) : (
+                                        <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>{u.name[0]}</AvatarFallback>
+                                      )}
+                                    </Avatar>
+                                    {u.role === 'owner' && (
+                                      <span className="absolute -bottom-0.5 -right-0.5 bg-[#ff6600] text-white text-[8px] px-1 rounded-full leading-tight">主</span>
+                                    )}
+                                  </div>
+                                  <span className="text-xs text-gray-600 mt-1 w-full text-center truncate">{u.name}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
                 <div className="relative">
                   <button
                     onClick={() => setShowInvite(!showInvite)}

@@ -24,6 +24,14 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
        ORDER BY created_at ASC`
     ).bind(groupId).all();
 
+    const users = await db.prepare(
+      `SELECT u.id, u.nickname as name, u.avatar_url, gu.role, gu.joined_at
+       FROM claw_group_users gu
+       INNER JOIN users u ON gu.user_id = u.id
+       WHERE gu.group_id = ?
+       ORDER BY gu.joined_at ASC`
+    ).bind(groupId).all();
+
     const group = await db.prepare(
       'SELECT id, name, description, max_rounds, max_responders FROM claw_groups WHERE id = ?'
     ).bind(groupId).first();
@@ -33,7 +41,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         success: true,
         data: {
           group,
-          members: members.results || []
+          members: members.results || [],
+          users: users.results || []
         }
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
