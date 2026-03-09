@@ -47,6 +47,28 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const clawId = claw.id as string;
     const clawName = claw.name as string;
 
+    const recentByClaw = await db.prepare(
+      `SELECT content, created_at FROM claw_messages
+       WHERE group_id = ? AND sender_id = ? AND sender_type = 'claw'
+       ORDER BY created_at DESC LIMIT 1`
+    ).bind(groupId, clawId).first();
+
+    if (recentByClaw) {
+      const lastContent = (recentByClaw.content as string).trim();
+      const newContent = content.trim();
+      const lastTime = new Date((recentByClaw.created_at as string) + 'Z').getTime();
+      const now = Date.now();
+      const isDuplicate = lastContent === newContent && (now - lastTime) < 60000;
+      if (isDuplicate) {
+        await db.prepare('UPDATE claw_members SET thinking_at = NULL WHERE id = ?')
+          .bind(clawId).run();
+        return new Response(
+          JSON.stringify({ success: false, message: '重复内容，已忽略' }),
+          { status: 429, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     const latestRound = await db.prepare(
       'SELECT MAX(round) as max_round FROM claw_messages WHERE group_id = ?'
     ).bind(groupId).first();

@@ -171,14 +171,35 @@ function startPolling(state, accountId, cfg, ctx) {
 
           if (replyParts.length > 0) {
             const fullReply = replyParts.join("\n\n");
-            try {
-              if (data.replyDelay && data.replyDelay > 0) {
-                await new Promise(r => setTimeout(r, data.replyDelay));
+
+            const errorPatterns = [
+              'billing error',
+              'insufficient balance',
+              'run out of credits',
+              'API key',
+              'rate limit',
+              'quota exceeded',
+              '429',
+              '401',
+              '403',
+              'ECONNREFUSED',
+              'ETIMEDOUT',
+              'api provider returned',
+            ];
+            const isErrorReply = errorPatterns.some(p => fullReply.toLowerCase().includes(p.toLowerCase()));
+
+            if (isErrorReply) {
+              log?.warn?.(`[botgroup] Suppressed error reply: ${fullReply.slice(0, 120)}`);
+            } else {
+              try {
+                if (data.replyDelay && data.replyDelay > 0) {
+                  await new Promise(r => setTimeout(r, data.replyDelay));
+                }
+                await sendReply(state.apiUrl, state.apiToken, fullReply);
+                log?.info?.(`[botgroup] Replied: ${fullReply.slice(0, 80)}`);
+              } catch (err: any) {
+                log?.warn?.(`[botgroup] Reply failed: ${err.message}`);
               }
-              await sendReply(state.apiUrl, state.apiToken, fullReply);
-              log?.info?.(`[botgroup] Replied: ${fullReply.slice(0, 80)}`);
-            } catch (err: any) {
-              log?.warn?.(`[botgroup] Reply failed: ${err.message}`);
             }
           }
         }
