@@ -1,5 +1,5 @@
 {
-  "id": "botgroup-chat",
+  "id": "botgroup",
   "name": "BotGroup Chat",
   "description": "Connect OpenClaw to botgroup.chat lobster group chats",
   "version": "1.0.0",
