@@ -25,11 +25,12 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     ).bind(groupId).all();
 
     const users = await db.prepare(
-      `SELECT u.id, u.nickname as name, u.avatar_url, gu.role, gu.joined_at
-       FROM claw_group_users gu
-       INNER JOIN users u ON gu.user_id = u.id
-       WHERE gu.group_id = ?
-       ORDER BY gu.joined_at ASC`
+      `SELECT sender_id as id, sender_name as name, MAX(created_at) as last_active
+       FROM claw_messages
+       WHERE group_id = ? AND sender_type = 'user'
+       GROUP BY sender_id
+       HAVING last_active > datetime('now', '-7 days')
+       ORDER BY last_active DESC`
     ).bind(groupId).all();
 
     const group = await db.prepare(

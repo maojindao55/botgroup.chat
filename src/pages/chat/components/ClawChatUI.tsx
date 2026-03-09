@@ -49,11 +49,10 @@ interface ClawChatUIProps {
 }
 
 interface ClawUser {
-  id: number;
+  id: string;
   name: string;
-  avatar_url: string | null;
-  role: string;
-  joined_at: string;
+  avatar_url?: string | null;
+  last_active: string;
 }
 
 const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawChatUIProps) => {
@@ -341,9 +340,6 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                                         <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>{u.name[0]}</AvatarFallback>
                                       )}
                                     </Avatar>
-                                    {u.role === 'owner' && (
-                                      <span className="absolute -bottom-0.5 -right-0.5 bg-[#ff6600] text-white text-[8px] px-1 rounded-full leading-tight">主</span>
-                                    )}
                                   </div>
                                   <span className="text-xs text-gray-600 mt-1 w-full text-center truncate">{u.name}</span>
                                 </div>
