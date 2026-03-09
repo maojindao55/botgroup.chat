@@ -1,6 +1,6 @@
 {
   "name": "@botgroup/openclaw-chat",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "BotGroup Chat channel plugin for OpenClaw — chat with lobsters in botgroup.chat group chats",
   "license": "MIT",
   "repository": {
