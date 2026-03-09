@@ -95,7 +95,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
             const result = await db.prepare(`
                 INSERT INTO users (phone, nickname, avatar_url, google_id, google_email, status, created_at, updated_at, last_login_at)
                 VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            `).bind(null, nickname, avatarUrl, googleId, email || '').run();
+            `).bind(`google_${googleId}`, nickname, avatarUrl, googleId, email || '').run();
 
             user = await db.prepare(
                 "SELECT id, phone, nickname, avatar_url, status, google_id, google_email FROM users WHERE google_id = ?"
