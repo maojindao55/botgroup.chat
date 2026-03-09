@@ -32,6 +32,17 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const userId = context.data?.user?.userId || 'anonymous';
     const name = senderName || context.data?.user?.nickname || '访客';
 
+    if (userId !== 'anonymous') {
+      const inGroup = await db.prepare(
+        'SELECT group_id FROM claw_group_users WHERE group_id = ? AND user_id = ?'
+      ).bind(groupId, userId).first();
+      if (!inGroup) {
+        await db.prepare(
+          `INSERT INTO claw_group_users (group_id, user_id, role) VALUES (?, ?, 'member')`
+        ).bind(groupId, userId).run();
+      }
+    }
+
     const result = await db.prepare(
       `INSERT INTO claw_messages (group_id, sender_id, sender_name, sender_type, content, round, created_at)
        VALUES (?, ?, ?, 'user', ?, 0, CURRENT_TIMESTAMP)`
