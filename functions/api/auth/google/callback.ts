@@ -123,10 +123,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const loginSuccessUrl = `${url.origin}/login?google_token=${encodeURIComponent(token)}`;
         return Response.redirect(loginSuccessUrl, 302);
 
-    } catch (error) {
-        console.error('Google callback error:', error);
+    } catch (error: any) {
+        console.error('Google callback error:', error?.message, error?.stack, error);
         const url = new URL(context.request.url);
-        return redirectToLogin(url.origin, '服务器错误，请重试');
+        const errMsg = error?.message || 'Unknown error';
+        return redirectToLogin(url.origin, `登录失败: ${errMsg}`);
     }
 };
 
