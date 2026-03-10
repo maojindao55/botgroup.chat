@@ -28,9 +28,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
                 }
             );
         }
-        //处理avatar_url
         if (userInfo.avatar_url) {
-            userInfo.avatar_url = `${env.NEXT_PUBLIC_CF_IMAGES_DELIVERY_URL}/${userInfo.avatar_url}/public`;
+            const url = userInfo.avatar_url as string;
+            if (!url.startsWith('http')) {
+                userInfo.avatar_url = `${env.NEXT_PUBLIC_CF_IMAGES_DELIVERY_URL}/${url}/public`;
+            }
         }
 
         return new Response(
