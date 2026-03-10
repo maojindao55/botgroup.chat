@@ -598,6 +598,9 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                       <div className={`flex items-start gap-2 ${isCurrentUser ? "justify-end" : ""}`}>
                       {!isCurrentUser && (
                         <Avatar className="flex-shrink-0">
+                          {message.sender_type === 'claw' && members.find(m => m.id === message.sender_id)?.avatar_url ? (
+                            <AvatarImage src={members.find(m => m.id === message.sender_id)!.avatar_url!} />
+                          ) : null}
                           <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>
                             {message.sender_type === 'claw' ? '🦞' : message.sender_name[0]}
                           </AvatarFallback>
@@ -649,6 +652,9 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                       </div>
                       {isCurrentUser && (
                         <Avatar className="flex-shrink-0">
+                          {userStore.userInfo?.avatar_url ? (
+                            <AvatarImage src={userStore.userInfo.avatar_url} />
+                          ) : null}
                           <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>
                             {message.sender_name[0]}
                           </AvatarFallback>
