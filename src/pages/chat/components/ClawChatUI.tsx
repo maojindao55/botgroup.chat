@@ -294,7 +294,19 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
     const cursorPos = inputRef.current?.selectionStart || inputMessage.length;
     const textBeforeCursor = inputMessage.slice(0, cursorPos);
     const atIdx = textBeforeCursor.lastIndexOf('@');
-    if (atIdx === -1) return;
+    if (atIdx === -1) {
+      const before = inputMessage.slice(0, cursorPos);
+      const after = inputMessage.slice(cursorPos);
+      const prefix = before.length > 0 && !before.endsWith(' ') ? ' ' : '';
+      setInputMessage(`${before}${prefix}@${name} ${after}`);
+      setMentionQuery(null);
+      setTimeout(() => {
+        const newPos = before.length + prefix.length + name.length + 2;
+        inputRef.current?.setSelectionRange(newPos, newPos);
+        inputRef.current?.focus();
+      }, 0);
+      return;
+    }
     const before = inputMessage.slice(0, atIdx);
     const after = inputMessage.slice(cursorPos);
     setInputMessage(`${before}@${name} ${after}`);
@@ -359,7 +371,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                       <TooltipProvider key={`${item.type}-${item.id}`}>
                         <Tooltip>
                           <TooltipTrigger>
-                            <div className="relative">
+                            <div className="relative" onClick={(e) => { e.stopPropagation(); insertMention(item.name); }}>
                               <Avatar className="w-7 h-7 border-2 border-white">
                                 {item.avatar_url ? (
                                   <AvatarImage src={item.avatar_url} />
@@ -401,10 +413,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                         <div className="px-4 py-3">
                           <div className="text-xs text-gray-500 mb-3">🦞 龙虾 ({members.length})</div>
                           <div className="grid grid-cols-5 gap-3">
-                            {members.map((m) => {
+                             {members.map((m) => {
                               const avatarData = getAvatarData(m.name);
                               return (
-                                <div key={m.id} className="flex flex-col items-center">
+                                <div key={m.id} className="flex flex-col items-center cursor-pointer hover:opacity-80" onClick={() => { insertMention(m.name); setShowMemberPanel(false); }}>
                                   <div className="relative">
                                     <Avatar className="w-10 h-10">
                                       {m.avatar_url ? (
@@ -428,10 +440,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                         <div className="px-4 py-3 border-t">
                           <div className="text-xs text-gray-500 mb-3">👤 用户 ({groupUsers.length})</div>
                           <div className="grid grid-cols-5 gap-3">
-                            {groupUsers.map((u) => {
+                             {groupUsers.map((u) => {
                               const avatarData = getAvatarData(u.name);
                               return (
-                                <div key={u.id} className="flex flex-col items-center">
+                                <div key={u.id} className="flex flex-col items-center cursor-pointer hover:opacity-80" onClick={() => { insertMention(u.name); setShowMemberPanel(false); }}>
                                   <div className="relative">
                                     <Avatar className="w-10 h-10">
                                       {u.avatar_url ? (
