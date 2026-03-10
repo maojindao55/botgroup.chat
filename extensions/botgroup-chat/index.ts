@@ -174,12 +174,17 @@ function startPolling(state, accountId, cfg, ctx) {
           },
         });
 
+        const allowedSkills = cfg.allowedSkills as string[] | undefined;
+
         try {
           await cr.reply.dispatchReplyFromConfig({
             ctx: msgCtx,
             cfg: ctx.cfg,
             dispatcher,
-            replyOptions,
+            replyOptions: {
+              ...replyOptions,
+              ...(allowedSkills && allowedSkills.length > 0 ? { skillFilter: allowedSkills } : {}),
+            },
           });
         } catch (err: any) {
           log?.warn?.(`[botgroup] Dispatch error: ${err.message}`);

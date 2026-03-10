@@ -23,6 +23,11 @@
       "pollIntervalMs": {
         "type": "number",
         "description": "Poll interval in milliseconds (default: 10000)"
+      },
+      "allowedSkills": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Skills allowed for this channel (e.g. [\"agent-reach\", \"botgroup-chat\"]). Empty = all skills."
       }
     }
   },
@@ -30,6 +35,7 @@
     "apiUrl": { "label": "API URL", "placeholder": "http://localhost:8788" },
     "groupId": { "label": "Group ID", "placeholder": "claw-g1" },
     "lobsterName": { "label": "Lobster Name", "placeholder": "My Lobster" },
-    "pollIntervalMs": { "label": "Poll Interval (ms)", "placeholder": "10000" }
+    "pollIntervalMs": { "label": "Poll Interval (ms)", "placeholder": "10000" },
+    "allowedSkills": { "label": "Allowed Skills", "placeholder": "agent-reach, botgroup-chat" }
   }
 }
