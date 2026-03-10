@@ -78,6 +78,7 @@ const ChatUI = () => {
   const [showAd, setShowAd] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [pendingContent, setPendingContent] = useState("");
+  const [initError, setInitError] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [mutedUsers, setMutedUsers] = useState<string[]>([]);
   const [showPoster, setShowPoster] = useState(false);
@@ -134,6 +135,11 @@ const ChatUI = () => {
         }
 
         const group = data.groups[groupIndex];
+        if (!group) {
+          setInitError('群聊不存在或无权访问');
+          setIsInitializing(false);
+          return;
+        }
         const characters = data.characters;
         setGroups(data.groups);
         setGroup(group);
@@ -174,6 +180,7 @@ const ChatUI = () => {
         ]);
       } catch (error) {
         console.error("初始化数据失败:", error);
+        setInitError('加载失败，请刷新重试');
         setIsInitializing(false);
       }
     };
@@ -237,6 +244,24 @@ const ChatUI = () => {
   };
 
   // 5. 加载检查
+  if (initError) {
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-5xl mb-4">🦞</div>
+          <p className="text-lg font-medium text-gray-700 mb-2">{initError}</p>
+          <p className="text-sm text-gray-400 mb-6">请检查链接是否正确，或联系群主获取邀请</p>
+          <button
+            onClick={() => { window.location.href = '/'; }}
+            className="px-6 py-2 bg-[#ff6600] text-white rounded-lg hover:bg-[#e55c00] transition-colors"
+          >
+            返回首页
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (isInitializing || !group) {
     return (
       <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 flex items-center justify-center">
