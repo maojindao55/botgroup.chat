@@ -79,6 +79,17 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
   const [mentionIndex, setMentionIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const newMessageIdsRef = useRef<Set<string | number>>(new Set());
+  const isUserNearBottomRef = useRef(true);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      isUserNearBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 300;
+    };
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -161,15 +172,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
   }, [group.clawGroupId]);
 
   useEffect(() => {
-    if (!isLoadingHistoryRef.current) {
-      const container = scrollContainerRef.current;
-      if (!container) return;
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-      if (isNearBottom) {
-        requestAnimationFrame(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-        });
-      }
+    if (!isLoadingHistoryRef.current && isUserNearBottomRef.current) {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      });
     }
   }, [messages, members]);
 
