@@ -160,12 +160,15 @@ function startPolling(state, accountId, cfg, ctx) {
           Timestamp: lastMsg.created_at ? new Date(lastMsg.created_at + "Z").getTime() : Date.now(),
         });
 
-        const shouldReply = data.shouldReply;
+        if (!data.shouldReply) {
+          log?.info?.(`[botgroup] Skipped ${inboundMsgs.length} message(s), no reply needed`);
+          return;
+        }
+
         const replyParts: string[] = [];
 
         const { dispatcher, replyOptions } = cr.reply.createReplyDispatcherWithTyping({
           deliver: async (payload) => {
-            if (!shouldReply) return;
             const text = typeof payload === "string" ? payload : payload?.text || payload?.body || "";
             if (text.trim()) replyParts.push(text.trim());
           },
@@ -180,11 +183,6 @@ function startPolling(state, accountId, cfg, ctx) {
           });
         } catch (err: any) {
           log?.warn?.(`[botgroup] Dispatch error: ${err.message}`);
-        }
-
-        if (!shouldReply) {
-          log?.info?.(`[botgroup] Recorded ${inboundMsgs.length} message(s), no reply needed`);
-          return;
         }
 
         if (replyParts.length > 0) {
