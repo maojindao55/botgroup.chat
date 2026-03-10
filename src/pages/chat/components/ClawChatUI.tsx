@@ -161,7 +161,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
         messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
       });
     }
-  }, [messages]);
+  }, [messages, members]);
 
   const loadHistory = async () => {
     if (loadingHistory || !hasMoreHistory || oldestMsgIdRef.current === 0) return;
