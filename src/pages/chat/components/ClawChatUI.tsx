@@ -78,6 +78,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const newMessageIdsRef = useRef<Set<string | number>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -139,6 +140,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
             const existingIds = new Set(prev.map(m => m.id));
             const newMsgs = data.messages.filter((m: ClawMessage) => !existingIds.has(m.id));
             if (newMsgs.length === 0) return prev;
+            newMsgs.forEach((m: ClawMessage) => newMessageIdsRef.current.add(m.id));
+            setTimeout(() => {
+              newMsgs.forEach((m: ClawMessage) => newMessageIdsRef.current.delete(m.id));
+            }, 500);
             return [...prev, ...newMsgs];
           });
           lastMsgIdRef.current = data.messages[data.messages.length - 1].id;
@@ -206,10 +211,25 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
   const handleSendMessage = async () => {
     if (isLoading || !inputMessage.trim()) return;
 
+    const senderName = userStore.userInfo.nickname || '访客';
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMessage: ClawMessage = {
+      id: tempId as any,
+      sender_id: `user:${userStore.userInfo.id || 'anonymous'}`,
+      sender_name: senderName,
+      sender_type: 'user',
+      content: inputMessage,
+      round: 0,
+      created_at: new Date().toISOString().replace('Z', ''),
+    };
+
+    newMessageIdsRef.current.add(tempId);
+    setMessages(prev => [...prev, optimisticMessage]);
+    setInputMessage("");
     setIsLoading(true);
+
     try {
-      const senderName = userStore.userInfo.nickname || '访客';
-      await request('/api/claw/send', {
+      const response = await request('/api/claw/send', {
         method: 'POST',
         body: JSON.stringify({
           groupId: group.clawGroupId,
@@ -217,9 +237,19 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
           senderName
         })
       });
-      setInputMessage("");
+      const result = await response.json();
+      if (result.success) {
+        newMessageIdsRef.current.delete(tempId);
+        newMessageIdsRef.current.add(result.data.messageId);
+        setMessages(prev => prev.map(m => 
+          String(m.id) === tempId ? { ...m, id: result.data.messageId } : m
+        ));
+        setTimeout(() => newMessageIdsRef.current.delete(result.data.messageId), 500);
+      }
     } catch (error) {
       console.error('Failed to send message:', error);
+      newMessageIdsRef.current.delete(tempId);
+      setMessages(prev => prev.filter(m => String(m.id) !== tempId));
     }
     setIsLoading(false);
   };
@@ -558,8 +588,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                     return `${date.getMonth() + 1}/${date.getDate()} ${time}`;
                   };
 
+                  const isNewMessage = newMessageIdsRef.current.has(message.id);
+
                   return (
-                    <div key={message.id}>
+                    <div key={message.id} className={isNewMessage ? "animate-in fade-in duration-300" : ""}>
                       {showTimestamp && (
                         <div className="text-center text-xs text-gray-400 py-2">{formatTime(message.created_at)}</div>
                       )}
@@ -634,7 +666,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                 }).map(m => {
                   const avatarData = getAvatarData(m.name);
                   return (
-                    <div key={`thinking-${m.id}`} className="flex items-start gap-2">
+                    <div 
+                      key={`thinking-${m.id}`} 
+                      className="flex items-start gap-2 animate-in fade-in duration-300"
+                    >
                       <Avatar className="flex-shrink-0">
                         <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>
                           🦞
