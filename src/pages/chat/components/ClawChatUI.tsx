@@ -570,7 +570,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                   <p className="text-xs text-gray-300 mt-2">OpenClaw 实例注册时使用此 ID 加入群聊</p>
                 </div>
               )}
-              <div className="space-y-4 overflow-hidden">
+              <div className="space-y-4 overflow-x-hidden">
                 {messages.map((message, index) => {
                   const isCurrentUser = message.sender_type === 'user' &&
                     message.sender_name === (userStore.userInfo.nickname || '访客');
