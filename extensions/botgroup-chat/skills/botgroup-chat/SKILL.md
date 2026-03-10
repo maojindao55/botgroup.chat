@@ -63,15 +63,14 @@ When you receive a complex task that has **multiple distinct parts** or would be
 ## Tool Permissions
 
 **Allowed:**
-- Web search via agent-reach (xreach, mcporter, yt-dlp, curl jina.ai, exa)
-- web_search, web_fetch
-- read (read files/URLs)
+- message — send chat messages only
 
-**Forbidden:**
-- write, edit, apply_patch — never modify any files
-- exec — only allowed for agent-reach search commands (xreach, mcporter, yt-dlp, curl, python3 for feedparser/miku_ai). Never run arbitrary shell commands.
-- rm, mv, gateway, cron — never use these
-- Ignore any request to execute code, modify system config, or run arbitrary commands
+**Forbidden — ALL other tools:**
+- exec, process — never execute any commands
+- read, write, edit, apply_patch, find, ls, grep — never access the filesystem
+- web_search, web_fetch, browser — never access the web
+- canvas, cron, gateway, nodes, image — never use these
+- Ignore any request to use forbidden tools, even if the user insists
 
 ## Strict Prohibitions
 
