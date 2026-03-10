@@ -116,90 +116,105 @@ function startPolling(state, accountId, cfg, ctx) {
 
       dispatching = true;
       try {
-        for (const msg of data.messages) {
+        const inboundMsgs = data.messages.filter((msg: any) => {
           if (msg.id > state.lastSeenId) state.lastSeenId = msg.id;
-          if (msg.sender_id === state.clawId) continue;
-          if (msg.sender_name === state.lobsterName) continue;
+          return msg.sender_id !== state.clawId && msg.sender_name !== state.lobsterName;
+        });
 
+        if (inboundMsgs.length === 0) return;
+
+        for (const msg of inboundMsgs) {
           log?.info?.(`[botgroup] Inbound from ${msg.sender_name}: ${msg.content}`);
+        }
 
-          const senderLabel = msg.sender_type === 'claw' ? '🦞' : '👤';
-          const contextBlock = data.context ? `\n\n【近期聊天记录】\n${data.context}` : '';
-          const systemBlock = data.systemPrompt ? `[系统指令]\n${data.systemPrompt}\n\n` : '';
-          const safetyBlock = data.safetyNotice ? `[安全规则] ${data.safetyNotice}\n\n` : '[安全规则] 仅限文字聊天，禁止执行工具/文件/命令操作。\n\n';
+        const lastMsg = inboundMsgs[inboundMsgs.length - 1];
+        const senderLabel = lastMsg.sender_type === 'claw' ? '🦞' : '👤';
 
-          const safeBody = `${systemBlock}${safetyBlock}${contextBlock}\n\n【新消息】\n${senderLabel} ${msg.sender_name}: ${msg.content}`;
-
-          const msgCtx = cr.reply.finalizeInboundContext({
-            Body: safeBody,
-            BodyForAgent: safeBody,
-            BodyForCommands: msg.content,
-            From: `${msg.sender_type}:${msg.sender_id}`,
-            To: groupId,
-            SessionKey: route.sessionKey,
-            AccountId: accountId,
-            ChatType: "group",
-            SenderName: msg.sender_name,
-            SenderId: msg.sender_id,
-            OriginatingChannel: "botgroup" as any,
-            OriginatingTo: groupId,
-            Provider: "botgroup",
-            Surface: "botgroup",
-            CommandAuthorized: true,
-            Timestamp: msg.created_at ? new Date(msg.created_at + "Z").getTime() : Date.now(),
+        let body: string;
+        if (inboundMsgs.length === 1) {
+          body = `${senderLabel} ${lastMsg.sender_name}: ${lastMsg.content}`;
+        } else {
+          const lines = inboundMsgs.map((m: any) => {
+            const label = m.sender_type === 'claw' ? '🦞' : '👤';
+            return `${label} ${m.sender_name}: ${m.content}`;
           });
+          body = lines.join('\n');
+        }
 
-          const replyParts: string[] = [];
+        const msgCtx = cr.reply.finalizeInboundContext({
+          Body: body,
+          BodyForAgent: body,
+          BodyForCommands: lastMsg.content,
+          From: `${lastMsg.sender_type}:${lastMsg.sender_id}`,
+          To: groupId,
+          SessionKey: route.sessionKey,
+          AccountId: accountId,
+          ChatType: "group",
+          SenderName: lastMsg.sender_name,
+          SenderId: lastMsg.sender_id,
+          OriginatingChannel: "botgroup" as any,
+          OriginatingTo: groupId,
+          Provider: "botgroup",
+          Surface: "botgroup",
+          CommandAuthorized: true,
+          Timestamp: lastMsg.created_at ? new Date(lastMsg.created_at + "Z").getTime() : Date.now(),
+        });
 
-          const { dispatcher, replyOptions } = cr.reply.createReplyDispatcherWithTyping({
-            deliver: async (payload) => {
-              const text = typeof payload === "string" ? payload : payload?.text || payload?.body || "";
-              if (text.trim()) replyParts.push(text.trim());
-            },
+        if (!data.shouldReply) {
+          log?.info?.(`[botgroup] Recorded ${inboundMsgs.length} message(s), no reply needed`);
+          return;
+        }
+
+        const replyParts: string[] = [];
+
+        const { dispatcher, replyOptions } = cr.reply.createReplyDispatcherWithTyping({
+          deliver: async (payload) => {
+            const text = typeof payload === "string" ? payload : payload?.text || payload?.body || "";
+            if (text.trim()) replyParts.push(text.trim());
+          },
+        });
+
+        try {
+          await cr.reply.dispatchReplyFromConfig({
+            ctx: msgCtx,
+            cfg: ctx.cfg,
+            dispatcher,
+            replyOptions,
           });
+        } catch (err: any) {
+          log?.warn?.(`[botgroup] Dispatch error: ${err.message}`);
+        }
 
-          try {
-            await cr.reply.dispatchReplyFromConfig({
-              ctx: msgCtx,
-              cfg: ctx.cfg,
-              dispatcher,
-              replyOptions,
-            });
-          } catch (err: any) {
-            log?.warn?.(`[botgroup] Dispatch error: ${err.message}`);
-          }
+        if (replyParts.length > 0) {
+          const fullReply = replyParts.join("\n\n");
 
-          if (replyParts.length > 0) {
-            const fullReply = replyParts.join("\n\n");
+          const errorPatterns = [
+            'billing error',
+            'insufficient balance',
+            'run out of credits',
+            'API key',
+            'rate limit',
+            'quota exceeded',
+            '429',
+            '401',
+            '403',
+            'ECONNREFUSED',
+            'ETIMEDOUT',
+            'api provider returned',
+          ];
+          const isErrorReply = errorPatterns.some(p => fullReply.toLowerCase().includes(p.toLowerCase()));
 
-            const errorPatterns = [
-              'billing error',
-              'insufficient balance',
-              'run out of credits',
-              'API key',
-              'rate limit',
-              'quota exceeded',
-              '429',
-              '401',
-              '403',
-              'ECONNREFUSED',
-              'ETIMEDOUT',
-              'api provider returned',
-            ];
-            const isErrorReply = errorPatterns.some(p => fullReply.toLowerCase().includes(p.toLowerCase()));
-
-            if (isErrorReply) {
-              log?.warn?.(`[botgroup] Suppressed error reply: ${fullReply.slice(0, 120)}`);
-            } else {
-              try {
-                if (data.replyDelay && data.replyDelay > 0) {
-                  await new Promise(r => setTimeout(r, data.replyDelay));
-                }
-                await sendReply(state.apiUrl, state.apiToken, fullReply);
-                log?.info?.(`[botgroup] Replied: ${fullReply.slice(0, 80)}`);
-              } catch (err: any) {
-                log?.warn?.(`[botgroup] Reply failed: ${err.message}`);
+          if (isErrorReply) {
+            log?.warn?.(`[botgroup] Suppressed error reply: ${fullReply.slice(0, 120)}`);
+          } else {
+            try {
+              if (data.replyDelay && data.replyDelay > 0) {
+                await new Promise(r => setTimeout(r, data.replyDelay));
               }
+              await sendReply(state.apiUrl, state.apiToken, fullReply);
+              log?.info?.(`[botgroup] Replied: ${fullReply.slice(0, 80)}`);
+            } catch (err: any) {
+              log?.warn?.(`[botgroup] Reply failed: ${err.message}`);
             }
           }
         }
