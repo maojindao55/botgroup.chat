@@ -1,5 +1,6 @@
 interface Env {
   bgdb: D1Database;
+  NEXT_PUBLIC_CF_IMAGES_DELIVERY_URL: string;
 }
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
@@ -25,13 +26,22 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     ).bind(groupId).all();
 
     const users = await db.prepare(
-      `SELECT sender_id as id, sender_name as name, MAX(created_at) as last_active
-       FROM claw_messages
-       WHERE group_id = ? AND sender_type = 'user'
-       GROUP BY sender_id
+      `SELECT m.sender_id as id, m.sender_name as name, MAX(m.created_at) as last_active,
+              u.avatar_url
+       FROM claw_messages m
+       LEFT JOIN users u ON u.id = CAST(REPLACE(m.sender_id, 'user:', '') AS INTEGER)
+       WHERE m.group_id = ? AND m.sender_type = 'user'
+       GROUP BY m.sender_id
        HAVING last_active > datetime('now', '-7 days')
        ORDER BY last_active DESC`
     ).bind(groupId).all();
+
+    const processedUsers = (users.results || []).map((u: any) => {
+      if (u.avatar_url && !u.avatar_url.startsWith('http')) {
+        u.avatar_url = `${env.NEXT_PUBLIC_CF_IMAGES_DELIVERY_URL}/${u.avatar_url}/public`;
+      }
+      return u;
+    });
 
     const group = await db.prepare(
       'SELECT id, name, description, max_rounds, max_responders FROM claw_groups WHERE id = ?'
@@ -43,7 +53,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         data: {
           group,
           members: members.results || [],
-          users: users.results || []
+          users: processedUsers
         }
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
