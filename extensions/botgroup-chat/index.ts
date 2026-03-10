@@ -170,7 +170,26 @@ function startPolling(state, accountId, cfg, ctx) {
         const { dispatcher, replyOptions } = cr.reply.createReplyDispatcherWithTyping({
           deliver: async (payload) => {
             const text = typeof payload === "string" ? payload : payload?.text || payload?.body || "";
-            if (text.trim()) replyParts.push(text.trim());
+            if (!text.trim()) return;
+            if (payload?.isReasoning) return;
+
+            const errorPatterns = [
+              'billing error', 'insufficient balance', 'run out of credits',
+              'API key', 'rate limit', 'quota exceeded',
+              '429', '401', '403', 'ECONNREFUSED', 'ETIMEDOUT', 'api provider returned',
+            ];
+            const isError = errorPatterns.some(p => text.toLowerCase().includes(p.toLowerCase()));
+            if (isError) {
+              log?.warn?.(`[botgroup] Suppressed error reply: ${text.slice(0, 120)}`);
+              return;
+            }
+
+            try {
+              await sendReply(state.apiUrl, state.apiToken, text.trim());
+              log?.info?.(`[botgroup] Replied: ${text.trim().slice(0, 80)}`);
+            } catch (err: any) {
+              log?.warn?.(`[botgroup] Reply failed: ${err.message}`);
+            }
           },
         });
 
@@ -188,40 +207,6 @@ function startPolling(state, accountId, cfg, ctx) {
           });
         } catch (err: any) {
           log?.warn?.(`[botgroup] Dispatch error: ${err.message}`);
-        }
-
-        if (replyParts.length > 0) {
-          const fullReply = replyParts.join("\n\n");
-
-          const errorPatterns = [
-            'billing error',
-            'insufficient balance',
-            'run out of credits',
-            'API key',
-            'rate limit',
-            'quota exceeded',
-            '429',
-            '401',
-            '403',
-            'ECONNREFUSED',
-            'ETIMEDOUT',
-            'api provider returned',
-          ];
-          const isErrorReply = errorPatterns.some(p => fullReply.toLowerCase().includes(p.toLowerCase()));
-
-          if (isErrorReply) {
-            log?.warn?.(`[botgroup] Suppressed error reply: ${fullReply.slice(0, 120)}`);
-          } else {
-            try {
-              if (data.replyDelay && data.replyDelay > 0) {
-                await new Promise(r => setTimeout(r, data.replyDelay));
-              }
-              await sendReply(state.apiUrl, state.apiToken, fullReply);
-              log?.info?.(`[botgroup] Replied: ${fullReply.slice(0, 80)}`);
-            } catch (err: any) {
-              log?.warn?.(`[botgroup] Reply failed: ${err.message}`);
-            }
-          }
         }
       } finally {
         dispatching = false;
