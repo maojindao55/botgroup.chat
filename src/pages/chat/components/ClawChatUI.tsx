@@ -55,6 +55,12 @@ interface ClawUser {
   last_active: string;
 }
 
+function isUserOnline(lastActive: string): boolean {
+  if (!lastActive) return false;
+  const diff = Date.now() - new Date(lastActive).getTime();
+  return diff < 5 * 60 * 1000; // active within 5 minutes
+}
+
 const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawChatUIProps) => {
   const userStore = useUserStore();
   const isMobile = useIsMobile();
@@ -364,7 +370,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
               <div className="flex items-center gap-1 pr-2">
                 <div className="flex -space-x-2 cursor-pointer" onClick={() => setShowMemberPanel(!showMemberPanel)}>
                   {[...members.map(m => ({ type: 'claw' as const, id: m.id, name: m.name, avatar_url: m.avatar_url, is_online: m.is_online })),
-                    ...groupUsers.map(u => ({ type: 'user' as const, id: String(u.id), name: u.name, avatar_url: u.avatar_url, is_online: -1 }))
+                    ...groupUsers.map(u => ({ type: 'user' as const, id: String(u.id), name: u.name, avatar_url: u.avatar_url, is_online: isUserOnline(u.last_active) ? 1 : 0 }))
                   ].slice(0, 5).map((item) => {
                     const avatarData = getAvatarData(item.name);
                     return (
@@ -381,13 +387,13 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                                   </AvatarFallback>
                                 )}
                               </Avatar>
-                              {item.type === 'claw' && item.is_online === 1 && (
+                              {item.is_online === 1 && (
                                 <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
                               )}
                             </div>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>{item.type === 'claw' ? (item.is_online === 1 ? '🟢' : '⚪') : '👤'} {item.type === 'claw' ? '🦞 ' : ''}{item.name}</p>
+                            <p>{item.is_online === 1 ? '🟢' : '⚪'} {item.type === 'claw' ? '🦞 ' : ''}{item.name}</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -452,6 +458,9 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                                         <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>{u.name[0]}</AvatarFallback>
                                       )}
                                     </Avatar>
+                                    {isUserOnline(u.last_active) && (
+                                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+                                    )}
                                   </div>
                                   <span className="text-xs text-gray-600 mt-1 w-full text-center truncate">{u.name}</span>
                                 </div>
