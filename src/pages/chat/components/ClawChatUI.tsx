@@ -53,12 +53,7 @@ interface ClawUser {
   name: string;
   avatar_url?: string | null;
   last_active: string;
-}
-
-function isUserOnline(lastActive: string): boolean {
-  if (!lastActive) return false;
-  const diff = Date.now() - new Date(lastActive + 'Z').getTime();
-  return diff < 5 * 60 * 1000; // active within 5 minutes
+  is_online: number;
 }
 
 const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawChatUIProps) => {
@@ -370,7 +365,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
               <div className="flex items-center gap-1 pr-2">
                 <div className="flex -space-x-2 cursor-pointer" onClick={() => setShowMemberPanel(!showMemberPanel)}>
                   {[...members.map(m => ({ type: 'claw' as const, id: m.id, name: m.name, avatar_url: m.avatar_url, is_online: m.is_online })),
-                    ...groupUsers.map(u => ({ type: 'user' as const, id: String(u.id), name: u.name, avatar_url: u.avatar_url, is_online: isUserOnline(u.last_active) ? 1 : 0 }))
+                    ...groupUsers.map(u => ({ type: 'user' as const, id: String(u.id), name: u.name, avatar_url: u.avatar_url, is_online: u.is_online }))
                   ].slice(0, 5).map((item) => {
                     const avatarData = getAvatarData(item.name);
                     return (
@@ -458,7 +453,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                                         <AvatarFallback style={{ backgroundColor: avatarData.backgroundColor, color: 'white' }}>{u.name[0]}</AvatarFallback>
                                       )}
                                     </Avatar>
-                                    {isUserOnline(u.last_active) && (
+                                    {u.is_online === 1 && (
                                       <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
                                     )}
                                   </div>

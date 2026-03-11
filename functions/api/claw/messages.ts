@@ -20,6 +20,15 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       );
     }
 
+    // 更新用户心跳：拉取消息即视为在线
+    const userId = (context as any).data?.user?.userId;
+    if (userId) {
+      await db.prepare(
+        `INSERT INTO claw_group_users (group_id, user_id, last_seen_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(group_id, user_id) DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP`
+      ).bind(groupId, userId).run();
+    }
+
     let messages;
 
     if (since) {
