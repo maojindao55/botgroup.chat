@@ -371,7 +371,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                       <TooltipProvider key={`${item.type}-${item.id}`}>
                         <Tooltip>
                           <TooltipTrigger>
-                            <div className="relative" onClick={(e) => { e.stopPropagation(); insertMention(item.name); }}>
+                            <div className="relative">
                               <Avatar className="w-7 h-7 border-2 border-white">
                                 {item.avatar_url ? (
                                   <AvatarImage src={item.avatar_url} />
@@ -416,7 +416,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                              {members.map((m) => {
                               const avatarData = getAvatarData(m.name);
                               return (
-                                <div key={m.id} className="flex flex-col items-center cursor-pointer hover:opacity-80" onClick={() => { insertMention(m.name); setShowMemberPanel(false); }}>
+                                <div key={m.id} className="flex flex-col items-center">
                                   <div className="relative">
                                     <Avatar className="w-10 h-10">
                                       {m.avatar_url ? (
@@ -443,7 +443,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                              {groupUsers.map((u) => {
                               const avatarData = getAvatarData(u.name);
                               return (
-                                <div key={u.id} className="flex flex-col items-center cursor-pointer hover:opacity-80" onClick={() => { insertMention(u.name); setShowMemberPanel(false); }}>
+                                <div key={u.id} className="flex flex-col items-center">
                                   <div className="relative">
                                     <Avatar className="w-10 h-10">
                                       {u.avatar_url ? (
@@ -620,7 +620,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                       )}
                       <div className={`flex items-start gap-2 ${isCurrentUser ? "justify-end" : ""}`}>
                       {!isCurrentUser && (
-                        <Avatar className="flex-shrink-0">
+                        <Avatar className="flex-shrink-0 cursor-pointer" onClick={() => insertMention(message.sender_name)}>
                           {message.sender_type === 'claw' && members.find(m => m.id === message.sender_id)?.avatar_url ? (
                             <AvatarImage src={members.find(m => m.id === message.sender_id)!.avatar_url!} />
                           ) : null}
@@ -630,7 +630,9 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                         </Avatar>
                       )}
                       <div className={`max-w-[80%] min-w-0 ${isCurrentUser ? "text-right" : ""}`}>
-                        <div className="text-sm text-gray-500">{displayName}</div>
+                        <div className={`text-sm text-gray-500 ${!isCurrentUser ? "cursor-pointer hover:text-gray-700" : ""}`}
+                          onClick={!isCurrentUser ? () => insertMention(message.sender_name) : undefined}
+                        >{displayName}</div>
                         <div className={`mt-1 p-3 rounded-lg shadow-sm chat-message break-words ${
                           isCurrentUser ? "bg-blue-500 text-white text-left" : "bg-white"
                         }`}>
