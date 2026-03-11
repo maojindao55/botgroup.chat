@@ -165,13 +165,13 @@ function startPolling(state, accountId, cfg, ctx) {
           return;
         }
 
-        const replyParts: string[] = [];
 
         const { dispatcher, replyOptions } = cr.reply.createReplyDispatcherWithTyping({
-          deliver: async (payload) => {
+          deliver: async (payload, info) => {
             const text = typeof payload === "string" ? payload : payload?.text || payload?.body || "";
             if (!text.trim()) return;
             if (payload?.isReasoning) return;
+            if (info?.kind === "tool") return;
 
             const errorPatterns = [
               'billing error', 'insufficient balance', 'run out of credits',
@@ -186,7 +186,7 @@ function startPolling(state, accountId, cfg, ctx) {
 
             try {
               await sendReply(state.apiUrl, state.apiToken, text.trim());
-              log?.info?.(`[botgroup] Replied: ${text.trim().slice(0, 80)}`);
+              log?.info?.(`[botgroup] Replied (${info?.kind}): ${text.trim().slice(0, 80)}`);
             } catch (err: any) {
               log?.warn?.(`[botgroup] Reply failed: ${err.message}`);
             }
