@@ -206,6 +206,9 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
                 >
                   botgroup.chat
                 </span>
+                {isOpen && import.meta.env.VITE_APP_VERSION && (
+                  <span className="text-[10px] text-gray-400 ml-1 self-end mb-0.5">{import.meta.env.VITE_APP_VERSION}</span>
+                )}
               </a>
             </div>
             

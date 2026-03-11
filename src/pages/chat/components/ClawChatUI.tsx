@@ -57,7 +57,7 @@ interface ClawUser {
 
 function isUserOnline(lastActive: string): boolean {
   if (!lastActive) return false;
-  const diff = Date.now() - new Date(lastActive).getTime();
+  const diff = Date.now() - new Date(lastActive + 'Z').getTime();
   return diff < 5 * 60 * 1000; // active within 5 minutes
 }
 
