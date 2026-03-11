@@ -441,7 +441,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                         <div className="px-4 py-3 border-t">
                           <div className="text-xs text-gray-500 mb-3">👤 用户 ({groupUsers.length})</div>
                           <div className="grid grid-cols-5 gap-3">
-                             {groupUsers.map((u) => {
+                             {[...groupUsers].sort((a, b) => b.is_online - a.is_online).map((u) => {
                               const avatarData = getAvatarData(u.name);
                               return (
                                 <div key={u.id} className="flex flex-col items-center">

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MessageSquareIcon, PlusCircleIcon, MenuIcon, PanelLeftCloseIcon } from "lucide-react";
@@ -40,6 +40,14 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
   const [groupName, setGroupName] = useState('');
   const [groupDesc, setGroupDesc] = useState('');
   const [creating, setCreating] = useState(false);
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    fetch('https://api.github.com/repos/maojindao55/botgroup.chat/releases/latest')
+      .then(r => r.json())
+      .then(data => { if (data.tag_name) setVersion(data.tag_name); })
+      .catch(() => {});
+  }, []);
 
   const handleCreateGroup = async () => {
     if (!groupName.trim()) {
@@ -206,8 +214,8 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
                 >
                   botgroup.chat
                 </span>
-                {isOpen && (
-                  <span className="text-[10px] text-gray-400 ml-1 self-end mb-0.5">{__APP_VERSION__}</span>
+                {isOpen && version && (
+                  <span className="text-[10px] text-gray-400 ml-1 self-end mb-0.5">{version}</span>
                 )}
               </a>
             </div>

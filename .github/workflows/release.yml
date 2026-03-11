@@ -23,8 +23,6 @@ jobs:
 
     - name: Build project
       run: npm run build
-      env:
-        VITE_APP_VERSION: v${{ github.run_number }}
 
     - name: Archive dist directory
       run: zip -r dist.zip dist
