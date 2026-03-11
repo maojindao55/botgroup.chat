@@ -644,7 +644,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                             remarkPlugins={[remarkGfm, remarkMath]}
                             rehypePlugins={[rehypeKatex]}
                             className={`prose dark:prose-invert max-w-none ${
-                              isCurrentUser ? "text-white [&_*]:text-white" : ""
+                              isCurrentUser ? "text-white [&_*]:text-white [&_a]:text-blue-200 [&_a]:underline" : ""
                             }
                             [&_h2]:py-1
                             [&_h2]:m-0
