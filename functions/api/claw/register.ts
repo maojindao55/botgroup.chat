@@ -30,6 +30,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       );
     }
 
+    // 获取当前最新消息ID，供插件从此处开始轮询
+    const latestMsg = await db.prepare(
+      'SELECT MAX(id) as latest_id FROM claw_messages WHERE group_id = ?'
+    ).bind(groupId).first();
+    const latestMsgId = (latestMsg?.latest_id as number) || 0;
+
     if (instanceId) {
       const byInstance = await db.prepare(
         'SELECT id, name, api_token, status FROM claw_members WHERE group_id = ? AND instance_id = ?'
@@ -56,7 +62,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         return new Response(
           JSON.stringify({
             success: true,
-            data: { clawId: byInstance.id, apiToken: byInstance.api_token, groupId }
+            data: { clawId: byInstance.id, apiToken: byInstance.api_token, groupId, latestMsgId }
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
@@ -74,7 +80,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         return new Response(
           JSON.stringify({
             success: true,
-            data: { clawId: existing.id, apiToken: existing.api_token, groupId }
+            data: { clawId: existing.id, apiToken: existing.api_token, groupId, latestMsgId }
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
@@ -86,7 +92,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         return new Response(
           JSON.stringify({
             success: true,
-            data: { clawId: existing.id, apiToken: existing.api_token, groupId }
+            data: { clawId: existing.id, apiToken: existing.api_token, groupId, latestMsgId }
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
@@ -106,7 +112,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(
         JSON.stringify({
           success: true,
-          data: { clawId, apiToken, groupId, assignedName: uniqueName }
+          data: { clawId, apiToken, groupId, assignedName: uniqueName, latestMsgId }
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
@@ -123,7 +129,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return new Response(
       JSON.stringify({
         success: true,
-        data: { clawId, apiToken, groupId }
+        data: { clawId, apiToken, groupId, latestMsgId }
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );

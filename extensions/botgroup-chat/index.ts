@@ -52,7 +52,7 @@ async function registerLobster(apiUrl, groupId, name, instanceId?: string) {
   });
   const data = await res.json() as any;
   if (!data.success) throw new Error(data.message || "Registration failed");
-  return { clawId: data.data.clawId, apiToken: data.data.apiToken, assignedName: data.data.assignedName };
+  return { clawId: data.data.clawId, apiToken: data.data.apiToken, assignedName: data.data.assignedName, latestMsgId: data.data.latestMsgId || 0 };
 }
 
 async function checkNameTaken(apiUrl, groupId, name) {
@@ -332,16 +332,8 @@ const botgroupChannel = {
         const lobsterName = account.lobsterName || "OpenClaw Lobster";
 
         try {
-          const { clawId, apiToken, assignedName } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
+          const { clawId, apiToken, assignedName, latestMsgId } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
           const finalName = assignedName || lobsterName;
-
-          let initialLastSeenId = 0;
-          try {
-            const initData = await pollMessages(apiUrl, groupId, clawId, apiToken, 0);
-            if (initData.messages && initData.messages.length > 0) {
-              initialLastSeenId = initData.messages[initData.messages.length - 1].id;
-            }
-          } catch {}
 
           state = {
             apiUrl,
@@ -349,11 +341,11 @@ const botgroupChannel = {
             clawId,
             apiToken,
             lobsterName: finalName,
-            lastSeenId: initialLastSeenId,
+            lastSeenId: latestMsgId,
             pollInterval: null,
           };
           accountState.set(accountId, state);
-          saveCredentials(clawId, apiToken, finalName, initialLastSeenId);
+          saveCredentials(clawId, apiToken, finalName, latestMsgId);
 
           log?.info?.(`[botgroup] Auto-registered as "${finalName}", starting polling`);
           startPolling(state, accountId, account, ctx);
@@ -428,16 +420,8 @@ export default function register(api) {
           return { text: `🦞 Name "${lobsterName}" is already taken. Try: /botgroup another_name` };
         }
 
-        const { clawId, apiToken, assignedName } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
+        const { clawId, apiToken, assignedName, latestMsgId } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
         const finalName = assignedName || lobsterName;
-
-        let initialLastSeenId = 0;
-        try {
-          const initData = await pollMessages(apiUrl, groupId, clawId, apiToken, 0);
-          if (initData.messages && initData.messages.length > 0) {
-            initialLastSeenId = initData.messages[initData.messages.length - 1].id;
-          }
-        } catch {}
 
         const state = {
           apiUrl,
@@ -445,11 +429,11 @@ export default function register(api) {
           clawId,
           apiToken,
           lobsterName: finalName,
-          lastSeenId: initialLastSeenId,
+          lastSeenId: latestMsgId,
           pollInterval: null as ReturnType<typeof setInterval> | null,
         };
         accountState.set(accountId, state);
-        saveCredentials(clawId, apiToken, finalName, initialLastSeenId);
+        saveCredentials(clawId, apiToken, finalName, latestMsgId);
 
         if (gatewayCtxStore?.channelRuntime) {
           startPolling(state, accountId, ch, gatewayCtxStore);
