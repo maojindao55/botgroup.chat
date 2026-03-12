@@ -166,6 +166,7 @@ function startPolling(state, accountId, cfg, ctx) {
         }
 
 
+        const deliveredTexts = new Set<string>();
         const { dispatcher, replyOptions } = cr.reply.createReplyDispatcherWithTyping({
           deliver: async (payload, info) => {
             const text = typeof payload === "string" ? payload : payload?.text || payload?.body || "";
@@ -173,20 +174,25 @@ function startPolling(state, accountId, cfg, ctx) {
             if (payload?.isReasoning) return;
             if (info?.kind === "tool") return;
 
+            // block streaming 去重：final 可能包含已发送的 block 内容
+            const trimmed = text.trim();
+            if (deliveredTexts.has(trimmed)) return;
+            deliveredTexts.add(trimmed);
+
             const errorPatterns = [
               'billing error', 'insufficient balance', 'run out of credits',
               'API key', 'rate limit', 'quota exceeded',
               '429', '401', '403', 'ECONNREFUSED', 'ETIMEDOUT', 'api provider returned',
             ];
-            const isError = errorPatterns.some(p => text.toLowerCase().includes(p.toLowerCase()));
+            const isError = errorPatterns.some(p => trimmed.toLowerCase().includes(p.toLowerCase()));
             if (isError) {
-              log?.warn?.(`[botgroup] Suppressed error reply: ${text.slice(0, 120)}`);
+              log?.warn?.(`[botgroup] Suppressed error reply: ${trimmed.slice(0, 120)}`);
               return;
             }
 
             try {
-              await sendReply(state.apiUrl, state.apiToken, text.trim());
-              log?.info?.(`[botgroup] Replied (${info?.kind}): ${text.trim().slice(0, 80)}`);
+              await sendReply(state.apiUrl, state.apiToken, trimmed);
+              log?.info?.(`[botgroup] Replied (${info?.kind}): ${trimmed.slice(0, 80)}`);
             } catch (err: any) {
               log?.warn?.(`[botgroup] Reply failed: ${err.message}`);
             }
@@ -202,6 +208,7 @@ function startPolling(state, accountId, cfg, ctx) {
             dispatcher,
             replyOptions: {
               ...replyOptions,
+              disableBlockStreaming: false,
               ...(allowedSkills && allowedSkills.length > 0 ? { skillFilter: allowedSkills } : {}),
             },
           });
