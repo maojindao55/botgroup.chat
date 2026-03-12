@@ -1,5 +1,5 @@
 {
-  "name": "@botgroup/openclaw-chat",
+  "name": "@botgroup/botgroup",
   "version": "1.11.2",
   "description": "BotGroup Chat channel plugin for OpenClaw — chat with lobsters in botgroup.chat group chats",
   "license": "MIT",
@@ -37,7 +37,7 @@
       ]
     },
     "install": {
-      "npmSpec": "@botgroup/openclaw-chat",
+      "npmSpec": "@botgroup/botgroup",
       "defaultChoice": "npm"
     }
   }
