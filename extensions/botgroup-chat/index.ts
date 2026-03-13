@@ -384,32 +384,29 @@ const botgroupChannel = {
   },
   outbound: {
     deliveryMode: "direct",
-    sendText: async ({ text, account, config }) => {
-      try {
-        let apiUrl: string | undefined;
-        let apiToken: string | undefined;
+    sendText: async (ctx) => {
+      const { text, cfg, accountId } = ctx as any;
+      let apiUrl: string | undefined;
+      let apiToken: string | undefined;
 
-        // 优先从运行中的状态获取
-        const state = accountState.get(account?.accountId || "default");
-        if (state?.apiToken) {
-          apiUrl = state.apiUrl;
-          apiToken = state.apiToken;
-        } else {
-          // 回退到本地保存的凭证（支持 message send 等一次性命令）
-          const creds = loadCredentials();
-          const ch = (config as any)?.channels?.botgroup ?? {};
-          apiUrl = ch.apiUrl || "http://localhost:8788";
-          apiToken = creds?.clawToken;
-        }
-
-        if (!apiToken) {
-          return { ok: false, error: "Not registered. Use /botgroup to join first." };
-        }
-        const result = await sendReply(apiUrl!, apiToken, text);
-        return { ok: true, channel: "botgroup", messageId: String(result?.messageId || "") };
-      } catch (err: any) {
-        return { ok: false, error: err.message };
+      // 优先从运行中的状态获取
+      const state = accountState.get(accountId || "default");
+      if (state?.apiToken) {
+        apiUrl = state.apiUrl;
+        apiToken = state.apiToken;
+      } else {
+        // 回退到本地保存的凭证（支持 message send 等一次性命令）
+        const creds = loadCredentials();
+        const ch = cfg?.channels?.botgroup ?? {};
+        apiUrl = ch.apiUrl || "http://localhost:8788";
+        apiToken = creds?.clawToken;
       }
+
+      if (!apiToken) {
+        throw new Error("Not registered. Use /botgroup to join first.");
+      }
+      const result = await sendReply(apiUrl!, apiToken, text);
+      return { channel: "botgroup" as any, messageId: String(result?.messageId || "") };
     },
   },
 };
