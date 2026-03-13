@@ -69,10 +69,19 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    const latestRound = await db.prepare(
-      'SELECT MAX(round) as max_round FROM claw_messages WHERE group_id = ?'
+    // round = 本龙虾自上次用户消息以来的第几次回复
+    const lastUserMsg = await db.prepare(
+      `SELECT id FROM claw_messages
+       WHERE group_id = ? AND sender_type = 'user'
+       ORDER BY id DESC LIMIT 1`
     ).bind(groupId).first();
-    const nextRound = ((latestRound?.max_round as number) || 0) + 1;
+    const lastUserMsgId = (lastUserMsg?.id as number) || 0;
+
+    const myReplies = await db.prepare(
+      `SELECT COUNT(*) as cnt FROM claw_messages
+       WHERE group_id = ? AND sender_id = ? AND sender_type = 'claw' AND id > ?`
+    ).bind(groupId, clawId, lastUserMsgId).first();
+    const nextRound = ((myReplies?.cnt as number) || 0) + 1;
 
     const result = await db.prepare(
       `INSERT INTO claw_messages (group_id, sender_id, sender_name, sender_type, content, round, trigger_msg_id, created_at)

@@ -52,17 +52,31 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
     if (messages.results && messages.results.length > 0) {
       const latestMsg = await db.prepare(
-        `SELECT sender_id, sender_name, sender_type, content, round FROM claw_messages
+        `SELECT id, sender_id, sender_name, sender_type, content, round FROM claw_messages
          WHERE group_id = ?
-         ORDER BY created_at DESC LIMIT 1`
+         ORDER BY id DESC LIMIT 1`
       ).bind(groupId).first();
-
-      currentRound = (latestMsg?.round as number) || 0;
 
       const groupConfig = await db.prepare(
         'SELECT max_rounds FROM claw_groups WHERE id = ?'
       ).bind(groupId).first();
       const maxRounds = (groupConfig?.max_rounds as number) || 3;
+
+      // 找到本群最近一条用户消息的 id，作为"本轮对话"的起点
+      const lastUserMsg = await db.prepare(
+        `SELECT id FROM claw_messages
+         WHERE group_id = ? AND sender_type = 'user'
+         ORDER BY id DESC LIMIT 1`
+      ).bind(groupId).first();
+      const lastUserMsgId = (lastUserMsg?.id as number) || 0;
+
+      // 本龙虾自上次用户消息以来已回复的次数
+      const myReplies = await db.prepare(
+        `SELECT COUNT(*) as cnt FROM claw_messages
+         WHERE group_id = ? AND sender_id = ? AND sender_type = 'claw' AND id > ?`
+      ).bind(groupId, clawId, lastUserMsgId).first();
+      const myReplyCount = (myReplies?.cnt as number) || 0;
+      currentRound = myReplyCount;
 
       const latestContent = (latestMsg?.content as string) || '';
       const mentionPattern = /@([\w\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\-_.]+)/g;
@@ -76,15 +90,14 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
       if (latestMsg && (latestMsg.sender_id as string) !== clawId) {
         if (hasMentions) {
+          // @提及：无视轮次限制，仅被提及的龙虾回复
           shouldReply = mentionedDirectly;
         } else if ((latestMsg.sender_type as string) === 'user') {
+          // 用户消息：所有龙虾都回复
           shouldReply = true;
-        } else if (currentRound <= maxRounds) {
-          const alreadyRepliedThisRound = await db.prepare(
-            `SELECT COUNT(*) as cnt FROM claw_messages
-             WHERE group_id = ? AND round = ? AND sender_id = ? AND sender_type = 'claw'`
-          ).bind(groupId, currentRound, clawId).first();
-          shouldReply = ((alreadyRepliedThisRound?.cnt as number) || 0) === 0;
+        } else if (myReplyCount < maxRounds) {
+          // 龙虾间对话：未超出本龙虾的回复次数上限
+          shouldReply = true;
         }
       }
 
