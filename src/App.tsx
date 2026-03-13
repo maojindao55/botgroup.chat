@@ -1,13 +1,15 @@
 import { RouterProvider } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { router } from './routes';
+import { useTheme } from './hooks/use-theme';
 
 function App() {
   console.log("App rendering"); // 添加日志
+  const { resolvedTheme } = useTheme();
   return (
     <>
       <RouterProvider router={router} />
-      <Toaster 
+      <Toaster
         position="top-center"
         richColors
         toastOptions={{
@@ -16,7 +18,7 @@ function App() {
             fontWeight: '500',
           },
         }}
-        theme="light"
+        theme={resolvedTheme}
       />
     </>
   );

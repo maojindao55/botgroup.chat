@@ -339,8 +339,8 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
   };
 
   return (
-    <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 flex items-start md:items-center justify-center overflow-hidden">
-      <div className="h-full flex bg-white w-full mx-auto relative shadow-xl md:max-w-5xl md:h-[96dvh] md:my-auto md:rounded-lg">
+    <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 dark:from-background dark:via-background dark:to-background flex items-start md:items-center justify-center overflow-hidden">
+      <div className="h-full flex bg-card w-full mx-auto relative shadow-xl md:max-w-5xl md:h-[96dvh] md:my-auto md:rounded-lg">
         <Sidebar
           isOpen={sidebarOpen}
           toggleSidebar={toggleSidebar}
@@ -350,7 +350,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
         />
 
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-          <header className="bg-white shadow flex-none md:rounded-t-lg">
+          <header className="bg-card shadow dark:shadow-none dark:border-b flex-none md:rounded-t-lg">
             <div className="flex items-center justify-between px-0 py-1.5">
               <div className="flex items-center md:px-2.5">
                 <div
@@ -373,7 +373,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                         <Tooltip>
                           <TooltipTrigger>
                             <div className="relative">
-                              <Avatar className="w-7 h-7 border-2 border-white">
+                              <Avatar className="w-7 h-7 border-2 border-card">
                                 {item.avatar_url ? (
                                   <AvatarImage src={item.avatar_url} />
                                 ) : (
@@ -383,7 +383,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                                 )}
                               </Avatar>
                               {item.is_online === 1 && (
-                                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+                                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-card" />
                               )}
                             </div>
                           </TooltipTrigger>
@@ -395,7 +395,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                     );
                   })}
                   {(members.length + groupUsers.length) > 5 && (
-                    <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-xs border-2 border-white">
+                    <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs border-2 border-card">
                       +{members.length + groupUsers.length - 5}
                     </div>
                   )}
@@ -403,16 +403,16 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                 {showMemberPanel && (
                   <>
                     <div className="fixed inset-0 z-30" onClick={() => setShowMemberPanel(false)} />
-                    <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-lg border max-h-[70vh] overflow-y-auto md:absolute md:inset-auto md:right-2 md:top-12 md:rounded-lg md:rounded-t-lg md:w-80 md:max-h-96">
-                      <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b sticky top-0 bg-white">
+                    <div className="fixed inset-x-0 bottom-0 z-50 bg-card rounded-t-2xl shadow-lg border max-h-[70vh] overflow-y-auto md:absolute md:inset-auto md:right-2 md:top-12 md:rounded-lg md:rounded-t-lg md:w-80 md:max-h-96">
+                      <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b sticky top-0 bg-card">
                         <span className="text-sm font-medium">群成员 ({memberCount})</span>
-                        <button onClick={() => setShowMemberPanel(false)} className="p-1 hover:bg-gray-100 rounded">
-                          <X className="w-4 h-4 text-gray-400" />
+                        <button onClick={() => setShowMemberPanel(false)} className="p-1 hover:bg-accent rounded">
+                          <X className="w-4 h-4 text-muted-foreground" />
                         </button>
                       </div>
                       {members.length > 0 && (
                         <div className="px-4 py-3">
-                          <div className="text-xs text-gray-500 mb-3">🦞 龙虾 ({members.length})</div>
+                          <div className="text-xs text-muted-foreground mb-3">🦞 龙虾 ({members.length})</div>
                           <div className="grid grid-cols-5 gap-3">
                              {members.map((m) => {
                               const avatarData = getAvatarData(m.name);
@@ -427,10 +427,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                                       )}
                                     </Avatar>
                                     {m.is_online === 1 && (
-                                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+                                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-card" />
                                     )}
                                   </div>
-                                  <span className="text-xs text-gray-600 mt-1 w-full text-center truncate">{m.name}</span>
+                                  <span className="text-xs text-muted-foreground mt-1 w-full text-center truncate">{m.name}</span>
                                 </div>
                               );
                             })}
@@ -439,7 +439,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                       )}
                       {groupUsers.length > 0 && (
                         <div className="px-4 py-3 border-t">
-                          <div className="text-xs text-gray-500 mb-3">👤 用户 ({groupUsers.length})</div>
+                          <div className="text-xs text-muted-foreground mb-3">👤 用户 ({groupUsers.length})</div>
                           <div className="grid grid-cols-5 gap-3">
                              {[...groupUsers].sort((a, b) => b.is_online - a.is_online).map((u) => {
                               const avatarData = getAvatarData(u.name);
@@ -454,10 +454,10 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                                       )}
                                     </Avatar>
                                     {u.is_online === 1 && (
-                                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+                                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-card" />
                                     )}
                                   </div>
-                                  <span className="text-xs text-gray-600 mt-1 w-full text-center truncate">{u.name}</span>
+                                  <span className="text-xs text-muted-foreground mt-1 w-full text-center truncate">{u.name}</span>
                                 </div>
                               );
                             })}
@@ -470,14 +470,14 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                 <div className="relative">
                   <button
                     onClick={() => setShowInvite(!showInvite)}
-                    className="w-7 h-7 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center hover:border-[#ff6600] hover:text-[#ff6600] transition-colors"
+                    className="w-7 h-7 rounded-full border-2 border-dashed border-border flex items-center justify-center hover:border-[#ff6600] hover:text-[#ff6600] transition-colors"
                   >
                     <span className="text-sm leading-none">🦞<sup className="text-[8px] font-bold">+</sup></span>
                   </button>
                   {showInvite && (
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setShowInvite(false)} />
-                      <div className="absolute right-0 top-10 z-40 bg-white rounded-lg shadow-lg border p-4 w-[calc(100vw-2rem)] max-w-80">
+                      <div className="absolute right-0 top-10 z-40 bg-popover rounded-lg shadow-lg border p-4 w-[calc(100vw-2rem)] max-w-80">
                         <div className="text-sm font-medium mb-3">邀请好友加入</div>
                         <button
                           onClick={() => {
@@ -492,26 +492,26 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                         </button>
                         <div className="border-t pt-3">
                           <div className="text-sm font-medium mb-2">接入 OpenClaw 龙虾</div>
-                          <div className="flex rounded-lg bg-gray-100 p-0.5 mb-3">
+                          <div className="flex rounded-lg bg-muted p-0.5 mb-3">
                             <button
                               onClick={() => setActiveTab('config')}
-                              className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${activeTab === 'config' ? 'bg-[#ff6600] text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                              className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${activeTab === 'config' ? 'bg-[#ff6600] text-white' : 'text-muted-foreground hover:text-foreground'}`}
                             >
                               配置文件
                             </button>
                             <button
                               onClick={() => setActiveTab('command')}
-                              className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${activeTab === 'command' ? 'bg-[#ff6600] text-white' : 'text-gray-600 hover:text-gray-900'}`}
+                              className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${activeTab === 'command' ? 'bg-[#ff6600] text-white' : 'text-muted-foreground hover:text-foreground'}`}
                             >
                               一键命令
                             </button>
                           </div>
                           {activeTab === 'config' ? (
                             <>
-                              <p className="text-xs text-gray-500 mb-2">1. 先安装插件：<code className="bg-gray-100 px-1 py-0.5 rounded text-[11px]">openclaw plugins install @botgroup/botgroup</code></p>
-                              <p className="text-xs text-gray-500 mb-2">2. 将以下配置粘贴到 openclaw.json：</p>
+                              <p className="text-xs text-muted-foreground mb-2">1. 先安装插件：<code className="bg-muted px-1 py-0.5 rounded text-[11px]">openclaw plugins install @botgroup/botgroup</code></p>
+                              <p className="text-xs text-muted-foreground mb-2">2. 将以下配置粘贴到 openclaw.json：</p>
                               <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre">{JSON.stringify({ channels: { botgroup: { apiUrl: window.location.origin, groupId: group.clawGroupId, lobsterName: "My Lobster", pollIntervalMs: 10000 } } }, null, 2)}</pre>
-                              <p className="text-xs text-gray-400 mt-2 mb-2">3. 重启 OpenClaw，执行 /botgroup 加入群聊</p>
+                              <p className="text-xs text-muted-foreground mt-2 mb-2">3. 重启 OpenClaw，执行 /botgroup 加入群聊</p>
                               <button
                                 onClick={() => {
                                   const config = JSON.stringify({ channels: { botgroup: { apiUrl: window.location.origin, groupId: group.clawGroupId, lobsterName: "My Lobster", pollIntervalMs: 10000 } } }, null, 2);
@@ -527,7 +527,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                           ) : (
                             <>
                               <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">{`openclaw plugins install @botgroup/botgroup && openclaw config set channels.botgroup.apiUrl ${window.location.origin} && openclaw config set channels.botgroup.groupId ${group.clawGroupId} && openclaw config set channels.botgroup.lobsterName "My Lobster"`}</pre>
-                              <p className="text-xs text-gray-400 mt-2 mb-2">在终端中运行，然后执行 /botgroup 加入群聊</p>
+                              <p className="text-xs text-muted-foreground mt-2 mb-2">在终端中运行，然后执行 /botgroup 加入群聊</p>
                               <button
                                 onClick={() => {
                                   const cmd = `openclaw plugins install @botgroup/botgroup && openclaw config set channels.botgroup.apiUrl ${window.location.origin} && openclaw config set channels.botgroup.groupId ${group.clawGroupId} && openclaw config set channels.botgroup.lobsterName "My Lobster"`;
@@ -550,7 +550,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
             </div>
           </header>
 
-          <div className="flex-1 overflow-hidden bg-gray-100">
+          <div className="flex-1 overflow-hidden bg-muted">
             <div
               ref={scrollContainerRef}
               onScroll={handleScroll}
@@ -562,28 +562,28 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                 </div>
               )}
               {!hasMoreHistory && messages.length > 0 && (
-                <div className="text-center text-xs text-gray-300 py-2">没有更多消息了</div>
+                <div className="text-center text-xs text-muted-foreground/50 py-2">没有更多消息了</div>
               )}
               {messages.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-full text-gray-400 py-20">
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
                   <div className="text-5xl mb-4">🦞</div>
                   <p className="text-lg font-medium">欢迎来到龙虾交流群</p>
                   <p className="text-sm mt-2">接入你的 OpenClaw 龙虾，或直接发消息和龙虾们聊天</p>
-                  <div className="mt-4 flex items-center gap-2 bg-white rounded-lg px-4 py-2 border border-gray-200">
-                    <span className="text-xs text-gray-500">群ID:</span>
-                    <code className="text-sm text-gray-700 font-mono">{group.clawGroupId}</code>
+                  <div className="mt-4 flex items-center gap-2 bg-card rounded-lg px-4 py-2 border border-border">
+                    <span className="text-xs text-muted-foreground">群ID:</span>
+                    <code className="text-sm text-foreground font-mono">{group.clawGroupId}</code>
                     <button
                       onClick={() => {
                         navigator.clipboard.writeText(group.clawGroupId || '');
                         setCopied(true);
                         setTimeout(() => setCopied(false), 2000);
                       }}
-                      className="ml-1 p-1 hover:bg-gray-100 rounded transition-colors"
+                      className="ml-1 p-1 hover:bg-accent rounded transition-colors"
                     >
-                      {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-400" />}
+                      {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-muted-foreground" />}
                     </button>
                   </div>
-                  <p className="text-xs text-gray-300 mt-2">OpenClaw 实例注册时使用此 ID 加入群聊</p>
+                  <p className="text-xs text-muted-foreground/50 mt-2">OpenClaw 实例注册时使用此 ID 加入群聊</p>
                 </div>
               )}
               <div className="space-y-4 overflow-x-hidden">
@@ -620,7 +620,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                   return (
                     <div key={message.id} className={isNewMessage ? "animate-in fade-in duration-300" : ""}>
                       {showTimestamp && (
-                        <div className="text-center text-xs text-gray-400 py-2">{formatTime(message.created_at)}</div>
+                        <div className="text-center text-xs text-muted-foreground py-2">{formatTime(message.created_at)}</div>
                       )}
                       <div className={`flex items-start gap-2 ${isCurrentUser ? "justify-end" : ""}`}>
                       {!isCurrentUser && (
@@ -634,11 +634,11 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                         </Avatar>
                       )}
                       <div className={`max-w-[80%] min-w-0 ${isCurrentUser ? "text-right" : ""}`}>
-                        <div className={`text-sm text-gray-500 ${!isCurrentUser ? "cursor-pointer hover:text-gray-700" : ""}`}
+                        <div className={`text-sm text-muted-foreground ${!isCurrentUser ? "cursor-pointer hover:text-foreground" : ""}`}
                           onClick={!isCurrentUser ? () => insertMention(message.sender_name) : undefined}
                         >{displayName}</div>
                         <div className={`mt-1 p-3 rounded-lg shadow-sm chat-message break-words ${
-                          isCurrentUser ? "bg-blue-500 text-white text-left" : "bg-white"
+                          isCurrentUser ? "bg-blue-500 text-white text-left" : "bg-card"
                         }`}>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm, remarkMath]}
@@ -670,7 +670,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                             [&_ol]:my-2
                             [&_li]:my-1
                             [&_blockquote]:border-l-4
-                            [&_blockquote]:border-gray-300
+                            [&_blockquote]:border-border
                             [&_blockquote]:pl-4
                             [&_blockquote]:my-2
                             [&_blockquote]:italic`}
@@ -711,9 +711,9 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                         </AvatarFallback>
                       </Avatar>
                       <div className="max-w-[80%] min-w-0">
-                        <div className="text-sm text-gray-500">🦞 {m.name}</div>
-                        <div className="mt-1 p-3 rounded-lg shadow-sm bg-white">
-                          <div className="flex items-center gap-1 text-gray-400">
+                        <div className="text-sm text-muted-foreground">🦞 {m.name}</div>
+                        <div className="mt-1 p-3 rounded-lg shadow-sm bg-card">
+                          <div className="flex items-center gap-1 text-muted-foreground">
                             <span className="animate-bounce" style={{ animationDelay: '0ms' }}>·</span>
                             <span className="animate-bounce" style={{ animationDelay: '150ms' }}>·</span>
                             <span className="animate-bounce" style={{ animationDelay: '300ms' }}>·</span>
@@ -728,14 +728,14 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
             </div>
           </div>
 
-          <div className="bg-white border-t py-3 px-2 md:rounded-b-lg">
+          <div className="bg-card border-t py-3 px-2 md:rounded-b-lg">
             <div className="relative">
               {mentionQuery !== null && mentionCandidates.length > 0 && (
-                <div className="absolute bottom-full left-0 right-0 mb-1 bg-white rounded-lg shadow-lg border max-h-48 overflow-y-auto z-50">
+                <div className="absolute bottom-full left-0 right-0 mb-1 bg-popover rounded-lg shadow-lg border max-h-48 overflow-y-auto z-50">
                   {mentionCandidates.map((c, i) => (
                     <div
                       key={c.name}
-                      className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer ${i === mentionIndex ? 'bg-orange-50 text-[#ff6600]' : 'hover:bg-gray-50'}`}
+                      className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer ${i === mentionIndex ? 'bg-orange-50 dark:bg-orange-950/30 text-[#ff6600]' : 'hover:bg-accent'}`}
                       onMouseDown={(e) => { e.preventDefault(); insertMention(c.name); }}
                     >
                       <span>{c.type}</span>

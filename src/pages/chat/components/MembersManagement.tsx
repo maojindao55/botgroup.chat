@@ -41,11 +41,11 @@ export const MembersManagement = ({
           <SheetTitle>群聊配置</SheetTitle>
         </SheetHeader>
         <div className="mt-4">
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+          <div className="mb-6 p-4 bg-muted rounded-lg">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm">全员讨论模式</div>
-                <div className="text-xs text-gray-500">开启后全员回复讨论</div>
+                <div className="text-xs text-muted-foreground">开启后全员回复讨论</div>
               </div>
               <Switch
                 checked={isGroupDiscussionMode}
@@ -54,7 +54,7 @@ export const MembersManagement = ({
             </div>
           </div>
           <div className="flex justify-between items-center mb-4">
-            <span className="text-sm text-gray-500">当前成员（{users.length}）</span>
+            <span className="text-sm text-muted-foreground">当前成员（{users.length}）</span>
             <Button variant="outline" size="sm">
               <UserPlus className="w-4 h-4 mr-2" />
               添加成员
@@ -63,7 +63,7 @@ export const MembersManagement = ({
           <ScrollArea className="h-[calc(100vh-150px)]">
             <div className="space-y-2 pr-4">
               {users.map((user) => (
-                <div key={user.id} className="flex items-center justify-between p-2 hover:bg-gray-100 rounded-lg">
+                <div key={user.id} className="flex items-center justify-between p-2 hover:bg-accent rounded-lg">
                   <div className="flex items-center gap-3">
                     <Avatar>
                       {'avatar' in user && user.avatar ? (

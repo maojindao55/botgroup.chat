@@ -246,11 +246,11 @@ const ChatUI = () => {
   // 5. 加载检查
   if (initError) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 flex items-center justify-center">
+      <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 dark:from-background dark:via-background dark:to-background flex items-center justify-center">
         <div className="text-center">
           <div className="text-5xl mb-4">🦞</div>
-          <p className="text-lg font-medium text-gray-700 mb-2">{initError}</p>
-          <p className="text-sm text-gray-400 mb-6">请检查链接是否正确，或联系群主获取邀请</p>
+          <p className="text-lg font-medium text-foreground mb-2">{initError}</p>
+          <p className="text-sm text-muted-foreground mb-6">请检查链接是否正确，或联系群主获取邀请</p>
           <button
             onClick={() => { window.location.href = '/'; }}
             className="px-6 py-2 bg-[#ff6600] text-white rounded-lg hover:bg-[#e55c00] transition-colors"
@@ -264,7 +264,7 @@ const ChatUI = () => {
 
   if (isInitializing || !group) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 flex items-center justify-center">
+      <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 dark:from-background dark:via-background dark:to-background flex items-center justify-center">
         <div className="w-8 h-8 animate-spin rounded-full border-4 border-orange-500 border-t-transparent"></div>
       </div>
     );
@@ -486,8 +486,8 @@ const ChatUI = () => {
   return (
     <>
       <KaTeXStyle />
-      <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 flex items-start md:items-center justify-center overflow-hidden">
-        <div className="h-full flex bg-white w-full mx-auto relative shadow-xl md:max-w-5xl md:h-[96dvh] md:my-auto md:rounded-lg">
+      <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-50/70 to-orange-100 dark:from-background dark:via-background dark:to-background flex items-start md:items-center justify-center overflow-hidden">
+        <div className="h-full flex bg-card w-full mx-auto relative shadow-xl md:max-w-5xl md:h-[96dvh] md:my-auto md:rounded-lg">
           {/* 传递 selectedGroupIndex 和 onSelectGroup 回调给 Sidebar */}
           <Sidebar 
             isOpen={sidebarOpen} 
@@ -500,7 +500,7 @@ const ChatUI = () => {
           {/* 聊天主界面 */}
           <div className="flex flex-col flex-1">
             {/* Header */}
-            <header className="bg-white shadow flex-none md:rounded-t-lg">
+            <header className="bg-card shadow dark:shadow-none dark:border-b flex-none md:rounded-t-lg">
               <div className="flex items-center justify-between px-0 py-1.5">
                 {/* 左侧群组信息 */}
                 <div className="flex items-center md:px-2.5">
@@ -529,7 +529,7 @@ const ChatUI = () => {
                         <TooltipProvider key={user.id}>
                           <Tooltip>
                             <TooltipTrigger>
-                              <Avatar className="w-7 h-7 border-2 border-white">
+                              <Avatar className="w-7 h-7 border-2 border-card">
                                 {'avatar' in user && user.avatar && user.avatar !== null ? (
                                   <AvatarImage src={user.avatar} />
                                 ) : (
@@ -547,7 +547,7 @@ const ChatUI = () => {
                       );
                     })}
                     {users.length > 4 && (
-                      <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-xs border-2 border-white">
+                      <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs border-2 border-card">
                         +{users.length - 4}
                       </div>
                     )}
@@ -560,7 +560,7 @@ const ChatUI = () => {
             </header>
 
             {/* Main Chat Area */}
-            <div className="flex-1 overflow-hidden bg-gray-100">
+            <div className="flex-1 overflow-hidden bg-muted">
 
               <ScrollArea className={`h-full ${!showAd ? 'px-2 py-1' : ''} md:px-2 md:py-1`} ref={chatAreaRef}>
                 <div className="md:hidden">
@@ -582,9 +582,9 @@ const ChatUI = () => {
                         </Avatar>
                       )}
                       <div className={message.sender.name === userStore.userInfo.nickname ? "text-right" : ""}>
-                        <div className="text-sm text-gray-500">{message.sender.name}</div>
+                        <div className="text-sm text-muted-foreground">{message.sender.name}</div>
                         <div className={`mt-1 p-3 rounded-lg shadow-sm chat-message ${
-                          message.sender.name === userStore.userInfo.nickname ? "bg-blue-500 text-white text-left" : "bg-white"
+                          message.sender.name === userStore.userInfo.nickname ? "bg-blue-500 text-white text-left" : "bg-card"
                         }`}>
                           <ReactMarkdown 
                             remarkPlugins={[remarkGfm, remarkMath]}
@@ -616,7 +616,7 @@ const ChatUI = () => {
                             [&_ol]:my-2
                             [&_li]:my-1
                             [&_blockquote]:border-l-4
-                            [&_blockquote]:border-gray-300
+                            [&_blockquote]:border-border
                             [&_blockquote]:pl-4
                             [&_blockquote]:my-2
                             [&_blockquote]:italic`}
@@ -645,14 +645,14 @@ const ChatUI = () => {
                   {/* 添加一个二维码 */}
                   <div id="qrcode" className="flex flex-col items-center hidden">
                     <img src="/img/qr.png" alt="QR Code" className="w-24 h-24" />
-                    <p className="text-sm text-gray-500 mt-2 font-medium tracking-tight bg-gray-50 px-3 py-1 rounded-full">扫码体验AI群聊</p>
+                    <p className="text-sm text-muted-foreground mt-2 font-medium tracking-tight bg-muted px-3 py-1 rounded-full">扫码体验AI群聊</p>
                   </div>
                 </div>
               </ScrollArea>
             </div>
 
             {/* Input Area */}
-            <div className="bg-white border-t py-3 px-2 md:rounded-b-lg">
+            <div className="bg-card border-t py-3 px-2 md:rounded-b-lg">
               <div className="flex gap-1 pb-[env(safe-area-inset-bottom)]">
                 {messages.length > 0 && (
                   <TooltipProvider>

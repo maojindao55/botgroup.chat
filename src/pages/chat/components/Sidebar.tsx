@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageSquareIcon, PlusCircleIcon, MenuIcon, PanelLeftCloseIcon } from "lucide-react";
+import { MessageSquareIcon, PlusCircleIcon, MenuIcon, PanelLeftCloseIcon, Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import GitHubButton from 'react-github-btn';
 import '@fontsource/audiowide';
 import { UserSection } from './UserSection';
+import { useTheme } from '@/hooks/use-theme';
 import { request } from '@/utils/request';
 import { toast } from 'sonner';
 import {
@@ -41,6 +42,15 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
   const [groupDesc, setGroupDesc] = useState('');
   const [creating, setCreating] = useState(false);
   const [version, setVersion] = useState('');
+  const { resolvedTheme, setTheme } = useTheme();
+
+  const toggleTheme = () => {
+    setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
+  };
+
+  const colorScheme = resolvedTheme === 'dark'
+    ? 'no-preference: dark; light: dark; dark: dark;'
+    : 'no-preference: light; light: light; dark: light;';
 
   useEffect(() => {
     fetch('https://api.github.com/repos/maojindao55/botgroup.chat/releases/latest')
@@ -124,7 +134,7 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
           isOpen ? "w-48 translate-x-0" : "w-0 md:w-14 -translate-x-full md:translate-x-0"
         )}
       >
-        <div className="h-full border-r bg-background rounded-l-lg overflow-hidden flex flex-col">
+        <div className="h-full border-r bg-card rounded-l-lg overflow-hidden flex flex-col">
           <div className="flex items-center justify-between px-2 py-1.5 border-b border-border/40">
             <div className="flex-1 flex items-center">
               <span className={cn(
@@ -200,6 +210,34 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
           {/* 用户信息模块 */}
           <UserSection isOpen={isOpen} />
 
+          {/* 暗黑模式切换 */}
+          <div className={cn(
+            "px-3 py-1.5 border-t border-border/40",
+            !isOpen && "flex justify-center"
+          )}>
+            <Button
+              variant="ghost"
+              size={isOpen ? "sm" : "icon"}
+              onClick={toggleTheme}
+              className={cn(
+                "text-muted-foreground hover:text-foreground w-full",
+                isOpen ? "justify-start gap-2" : "h-8 w-8"
+              )}
+            >
+              {resolvedTheme === 'dark' ? (
+                <Sun className="h-4 w-4 flex-shrink-0" />
+              ) : (
+                <Moon className="h-4 w-4 flex-shrink-0" />
+              )}
+              <span className={cn(
+                "transition-all duration-200 whitespace-nowrap overflow-hidden text-sm",
+                isOpen ? "opacity-100 max-w-full" : "opacity-0 max-w-0 md:max-w-0"
+              )}>
+                {resolvedTheme === 'dark' ? '浅色模式' : '深色模式'}
+              </span>
+            </Button>
+          </div>
+
           {/* GitHub Star Button - 只在侧边栏打开时显示，放在底部 */}
           <div className="px-3 py-2 mt-auto">
             {/* 标题移至底部 */}
@@ -222,9 +260,9 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
             
             {isOpen && (
               <div className="flex items-center justify-left h-8">
-                <GitHubButton 
+                <GitHubButton
                   href="https://github.com/maojindao55/botgroup.chat"
-                  data-color-scheme="no-preference: light; light: light; dark: light;"
+                  data-color-scheme={colorScheme}
                   data-size="large"
                   data-show-count="true"
                   aria-label="Star maojindao55/botgroup.chat on GitHub"
