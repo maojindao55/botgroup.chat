@@ -390,8 +390,8 @@ const botgroupChannel = {
         if (!state?.apiToken) {
           return { ok: false, error: "Not registered. Use /botgroup to join first." };
         }
-        await sendReply(state.apiUrl, state.apiToken, text);
-        return { ok: true };
+        const result = await sendReply(state.apiUrl, state.apiToken, text);
+        return { ok: true, channel: "botgroup", messageId: String(result?.messageId || "") };
       } catch (err: any) {
         return { ok: false, error: err.message };
       }
