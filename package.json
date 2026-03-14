@@ -51,6 +51,7 @@
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
     "autoprefixer": "^10.4.20",
+    "playwright": "^1.58.2",
     "postcss": "^8.5.2",
     "rollup-plugin-copy": "^3.5.0",
     "tailwindcss": "^3.4.17",

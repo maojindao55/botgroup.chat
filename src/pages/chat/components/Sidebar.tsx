@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageSquareIcon, PlusCircleIcon, MenuIcon, PanelLeftCloseIcon, Sun, Moon } from "lucide-react";
+import { MessageSquareIcon, PlusCircleIcon, MenuIcon, PanelLeftCloseIcon, Sun, Moon, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import GitHubButton from 'react-github-btn';
 import '@fontsource/audiowide';
@@ -42,11 +42,7 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
   const [groupDesc, setGroupDesc] = useState('');
   const [creating, setCreating] = useState(false);
   const [version, setVersion] = useState('');
-  const { resolvedTheme, setTheme } = useTheme();
-
-  const toggleTheme = () => {
-    setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
-  };
+  const { theme, resolvedTheme, setTheme } = useTheme();
 
   const colorScheme = resolvedTheme === 'dark'
     ? 'no-preference: dark; light: dark; dark: dark;'
@@ -215,27 +211,79 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
             "px-3 py-1.5 border-t border-border/40",
             !isOpen && "flex justify-center"
           )}>
-            <Button
-              variant="ghost"
-              size={isOpen ? "sm" : "icon"}
-              onClick={toggleTheme}
-              className={cn(
-                "text-muted-foreground hover:text-foreground w-full",
-                isOpen ? "justify-start gap-2" : "h-8 w-8"
-              )}
-            >
-              {resolvedTheme === 'dark' ? (
-                <Sun className="h-4 w-4 flex-shrink-0" />
-              ) : (
-                <Moon className="h-4 w-4 flex-shrink-0" />
-              )}
-              <span className={cn(
-                "transition-all duration-200 whitespace-nowrap overflow-hidden text-sm",
-                isOpen ? "opacity-100 max-w-full" : "opacity-0 max-w-0 md:max-w-0"
-              )}>
-                {resolvedTheme === 'dark' ? '浅色模式' : '深色模式'}
-              </span>
-            </Button>
+            {isOpen ? (
+              <div className="flex items-center gap-1 bg-secondary rounded-full p-0.5 w-full justify-center">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setTheme('system')}
+                  className={cn(
+                    "h-7 w-7 rounded-full text-muted-foreground hover:text-foreground transition-all",
+                    theme === 'system' && "bg-background shadow text-foreground"
+                  )}
+                >
+                  <Monitor className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setTheme('light')}
+                  className={cn(
+                    "h-7 w-7 rounded-full text-muted-foreground hover:text-foreground transition-all",
+                    theme === 'light' && "bg-background shadow text-foreground"
+                  )}
+                >
+                  <Sun className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setTheme('dark')}
+                  className={cn(
+                    "h-7 w-7 rounded-full text-muted-foreground hover:text-foreground transition-all",
+                    theme === 'dark' && "bg-background shadow text-foreground"
+                  )}
+                >
+                  <Moon className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setTheme('system')}
+                  className={cn(
+                    "h-7 w-7 rounded-full text-muted-foreground hover:text-foreground",
+                    theme === 'system' && "bg-background shadow text-foreground"
+                  )}
+                >
+                  <Monitor className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setTheme('light')}
+                  className={cn(
+                    "h-7 w-7 rounded-full text-muted-foreground hover:text-foreground",
+                    theme === 'light' && "bg-background shadow text-foreground"
+                  )}
+                >
+                  <Sun className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setTheme('dark')}
+                  className={cn(
+                    "h-7 w-7 rounded-full text-muted-foreground hover:text-foreground",
+                    theme === 'dark' && "bg-background shadow text-foreground"
+                  )}
+                >
+                  <Moon className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* GitHub Star Button - 只在侧边栏打开时显示，放在底部 */}
