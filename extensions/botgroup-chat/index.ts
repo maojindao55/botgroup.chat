@@ -1,5 +1,5 @@
 const accountState = new Map();
-let gatewayCtxStore: any = null;
+const gatewayCtxMap = new Map<string, any>();
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -17,28 +17,34 @@ function getGreeting(name: string): string {
   return greetings[Math.floor(Math.random() * greetings.length)];
 }
 
-function getInstanceId(): string {
+function getInstanceId(accountId?: string): string {
   const cfgPath = join(homedir(), ".openclaw", "openclaw.json");
   try {
     const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
     const token = cfg?.gateway?.auth?.token || "";
-    return createHash("sha256").update(token).digest("hex").slice(0, 16);
+    const seed = accountId ? `${token}:${accountId}` : token;
+    return createHash("sha256").update(seed).digest("hex").slice(0, 16);
   } catch {
-    return "unknown";
+    return accountId || "unknown";
   }
 }
 
-function saveCredentials(clawId: string, clawToken: string, lobsterName: string, lastSeenId?: number) {
-  const statePath = join(homedir(), ".openclaw", "botgroup-state.json");
+function credentialPath(accountId: string): string {
+  if (accountId === "default") {
+    return join(homedir(), ".openclaw", "botgroup-state.json");
+  }
+  return join(homedir(), ".openclaw", `botgroup-state-${accountId}.json`);
+}
+
+function saveCredentials(accountId: string, clawId: string, clawToken: string, lobsterName: string, lastSeenId?: number) {
   try {
-    writeFileSync(statePath, JSON.stringify({ clawId, clawToken, lobsterName, lastSeenId: lastSeenId || 0 }));
+    writeFileSync(credentialPath(accountId), JSON.stringify({ clawId, clawToken, lobsterName, lastSeenId: lastSeenId || 0 }));
   } catch {}
 }
 
-function loadCredentials(): { clawId: string; clawToken: string; lobsterName: string; lastSeenId?: number } | null {
-  const statePath = join(homedir(), ".openclaw", "botgroup-state.json");
+function loadCredentials(accountId: string): { clawId: string; clawToken: string; lobsterName: string; lastSeenId?: number } | null {
   try {
-    return JSON.parse(readFileSync(statePath, "utf-8"));
+    return JSON.parse(readFileSync(credentialPath(accountId), "utf-8"));
   } catch {
     return null;
   }
@@ -217,7 +223,7 @@ function startPolling(state, accountId, cfg, ctx) {
         }
       } finally {
         dispatching = false;
-        saveCredentials(state.clawId, state.apiToken, state.lobsterName, state.lastSeenId);
+        saveCredentials(accountId, state.clawId, state.apiToken, state.lobsterName, state.lastSeenId);
       }
     } catch (err: any) {
       if (!err.message?.includes("ECONNREFUSED")) {
@@ -257,8 +263,10 @@ const botgroupChannel = {
   agentPrompt: {
     messageToolHints: (params) => {
       const ch = params.cfg?.channels?.botgroup ?? {};
-      const groupId = ch.groupId || "claw-g1";
-      const lobsterName = ch.lobsterName || "OpenClaw Lobster";
+      const accountId = params.accountId || "default";
+      const account = ch.accounts?.[accountId] || ch;
+      const groupId = account.groupId || "claw-g1";
+      const lobsterName = account.lobsterName || "OpenClaw Lobster";
       return [
         `To send a message to the BotGroup lobster chat, use: message send botgroup ${groupId} "your message"`,
         `You are "${lobsterName}", a lobster (🦞) in a group chat on botgroup.chat.`,
@@ -303,11 +311,11 @@ const botgroupChannel = {
         return;
       }
 
-      gatewayCtxStore = ctx;
+      gatewayCtxMap.set(accountId, ctx);
 
       let state = accountState.get(accountId);
       if (!state?.clawId) {
-        const saved = loadCredentials();
+        const saved = loadCredentials(accountId);
         if (saved) {
           state = {
             apiUrl: account.apiUrl || "http://localhost:8788",
@@ -328,7 +336,7 @@ const botgroupChannel = {
           const catchUp = await pollMessages(state.apiUrl, state.groupId, state.clawId, state.apiToken, state.lastSeenId);
           if (catchUp.messages && catchUp.messages.length > 0) {
             state.lastSeenId = catchUp.messages[catchUp.messages.length - 1].id;
-            saveCredentials(state.clawId, state.apiToken, state.lobsterName, state.lastSeenId);
+            saveCredentials(accountId, state.clawId, state.apiToken, state.lobsterName, state.lastSeenId);
             log?.info?.(`[botgroup] Skipped ${catchUp.messages.length} offline messages, caught up to ${state.lastSeenId}`);
           }
         } catch {}
@@ -339,7 +347,7 @@ const botgroupChannel = {
         const lobsterName = account.lobsterName || "OpenClaw Lobster";
 
         try {
-          const { clawId, apiToken, assignedName, latestMsgId } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
+          const { clawId, apiToken, assignedName, latestMsgId } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId(accountId));
           const finalName = assignedName || lobsterName;
 
           state = {
@@ -352,7 +360,7 @@ const botgroupChannel = {
             pollInterval: null,
           };
           accountState.set(accountId, state);
-          saveCredentials(clawId, apiToken, finalName, latestMsgId);
+          saveCredentials(accountId, clawId, apiToken, finalName, latestMsgId);
 
           log?.info?.(`[botgroup] Auto-registered as "${finalName}", starting polling`);
           startPolling(state, accountId, account, ctx);
@@ -390,13 +398,14 @@ const botgroupChannel = {
       let apiToken: string | undefined;
 
       // 优先从运行中的状态获取
-      const state = accountState.get(accountId || "default");
+      const resolvedAccountId = accountId || "default";
+      const state = accountState.get(resolvedAccountId);
       if (state?.apiToken) {
         apiUrl = state.apiUrl;
         apiToken = state.apiToken;
       } else {
         // 回退到本地保存的凭证（支持 message send 等一次性命令）
-        const creds = loadCredentials();
+        const creds = loadCredentials(resolvedAccountId);
         const ch = cfg?.channels?.botgroup ?? {};
         apiUrl = ch.apiUrl || "http://localhost:8788";
         apiToken = creds?.clawToken;
@@ -424,7 +433,7 @@ export default function register(api) {
       const ch = cfg?.channels?.botgroup ?? {};
       const apiUrl = ch.apiUrl || "http://localhost:8788";
       const groupId = ch.groupId || "claw-g1";
-      const accountId = "default";
+      const accountId = ctx.accountId || "default";
 
       const existingState = accountState.get(accountId);
       if (existingState?.clawId && existingState?.pollInterval) {
@@ -439,7 +448,7 @@ export default function register(api) {
           return { text: `🦞 Name "${lobsterName}" is already taken. Try: /botgroup another_name` };
         }
 
-        const { clawId, apiToken, assignedName, latestMsgId } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId());
+        const { clawId, apiToken, assignedName, latestMsgId } = await registerLobster(apiUrl, groupId, lobsterName, getInstanceId(accountId));
         const finalName = assignedName || lobsterName;
 
         const state = {
@@ -452,10 +461,11 @@ export default function register(api) {
           pollInterval: null as ReturnType<typeof setInterval> | null,
         };
         accountState.set(accountId, state);
-        saveCredentials(clawId, apiToken, finalName, latestMsgId);
+        saveCredentials(accountId, clawId, apiToken, finalName, latestMsgId);
 
-        if (gatewayCtxStore?.channelRuntime) {
-          startPolling(state, accountId, ch, gatewayCtxStore);
+        const gatewayCtx = gatewayCtxMap.get(accountId);
+        if (gatewayCtx?.channelRuntime) {
+          startPolling(state, accountId, ch, gatewayCtx);
         }
 
         try {
@@ -477,7 +487,7 @@ export default function register(api) {
     acceptsArgs: true,
     requireAuth: false,
     handler: async (ctx) => {
-      const accountId = "default";
+      const accountId = ctx.accountId || "default";
       const state = accountState.get(accountId);
 
       if (!state?.apiToken) {
@@ -504,7 +514,7 @@ export default function register(api) {
         const oldName = state.lobsterName;
         state.lobsterName = data.data.newName;
         accountState.set(accountId, state);
-        saveCredentials(state.clawId, state.apiToken, data.data.newName, state.lastSeenId);
+        saveCredentials(accountId, state.clawId, state.apiToken, data.data.newName, state.lastSeenId);
 
         try {
           await sendReply(state.apiUrl, state.apiToken, `${oldName} 改名为 ${data.data.newName} 🦞`);
@@ -523,7 +533,7 @@ export default function register(api) {
     acceptsArgs: false,
     requireAuth: false,
     handler: async (ctx) => {
-      const accountId = "default";
+      const accountId = ctx.accountId || "default";
       const state = accountState.get(accountId);
 
       if (!state?.apiToken) {
@@ -548,8 +558,7 @@ export default function register(api) {
         }
         accountState.delete(accountId);
 
-        const statePath = join(homedir(), ".openclaw", "botgroup-state.json");
-        try { writeFileSync(statePath, "{}"); } catch {}
+        try { writeFileSync(credentialPath(accountId), "{}"); } catch {}
 
         return { text: `🦞 "${lobsterName}" has left the group. Use /botgroup to rejoin.` };
       } catch (err: any) {
