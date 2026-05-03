@@ -522,16 +522,32 @@ function AiGameRoom() {
                     const isElimination = message.content.includes('出局') && !isGameOver;
 
                     if (isGameOver) {
+                      const votePart = message.content.match(/投票完成：(.*?)。/)?.[1] || '';
+                      const resultPart = message.content.replace(/投票完成：.*?。/, '').replace(/^投票完成：/, '');
+                      const votePairs = votePart.split(/[，,]/).map((s: string) => {
+                        const m = s.trim().match(/^(.+?)\s*->\s*(.+)$/);
+                        return m ? { voter: m[1].trim(), target: m[2].trim() } : null;
+                      }).filter(Boolean) as { voter: string; target: string }[];
+                      const resultLines = resultPart.split('。').map((s: string) => s.trim()).filter(Boolean);
                       return (
                         <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                          <div className="mx-auto max-w-sm rounded-xl border-2 border-[#ff6600]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 text-center shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#ff6600]/30">
+                          <div className="mx-auto max-w-sm rounded-xl border-2 border-[#ff6600]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#ff6600]/30">
                             <Trophy className="mx-auto mb-2 h-6 w-6 text-[#ff6600]" />
-                            <div className="text-sm font-semibold text-foreground">游戏结束</div>
-                            <div className="mt-2 space-y-1 text-xs text-muted-foreground leading-relaxed">
-                              {message.content.split('。').filter(Boolean).map((line, i) => (
-                                <p key={i}>{line.trim()}</p>
-                              ))}
-                            </div>
+                            <div className="text-center text-sm font-semibold text-foreground">游戏结束</div>
+                            {votePairs.length > 0 && (
+                              <div className="mt-3 space-y-1.5 rounded-lg bg-white/60 p-2 dark:bg-black/20">
+                                {votePairs.map((pair, i) => (
+                                  <VoteRecord key={i} voterName={pair.voter} targetName={pair.target} />
+                                ))}
+                              </div>
+                            )}
+                            {resultLines.length > 0 && (
+                              <div className="mt-2 space-y-0.5 text-xs text-muted-foreground leading-relaxed text-center">
+                                {resultLines.map((line, i) => (
+                                  <p key={i}>{line}</p>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
