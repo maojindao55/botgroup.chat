@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, Check, Copy, Eye, MessageSquare, Play, Send, Share2, Users, Vote } from 'lucide-react';
+import { Bot, Check, Copy, Eye, MessageSquare, Play, Send, Share2, Users, Vote, AlertCircle, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -498,7 +498,72 @@ function AiGameRoom() {
                   const system = message.sender_type === 'system';
                   const avatar = getAvatarData(message.sender_name);
                   if (system) {
-                    return <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 text-center text-xs text-muted-foreground">{message.content}</div>;
+                    const isVoteResult = message.content.startsWith('投票完成');
+                    const isGameOver = isVoteResult && (message.content.includes('游戏结束') || message.content.includes('身份已揭晓'));
+                    const isGameStart = message.content.startsWith('游戏开始') || message.content.startsWith('开庭') || message.content.startsWith('单人鉴定');
+                    const isElimination = message.content.includes('出局') && !isGameOver;
+
+                    if (isGameOver) {
+                      return (
+                        <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                          <div className="mx-auto max-w-sm rounded-xl border-2 border-[#ff6600]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 text-center shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#ff6600]/30">
+                            <Trophy className="mx-auto mb-2 h-6 w-6 text-[#ff6600]" />
+                            <div className="text-sm font-semibold text-foreground">游戏结束</div>
+                            <div className="mt-2 space-y-1 text-xs text-muted-foreground leading-relaxed">
+                              {message.content.split('。').filter(Boolean).map((line, i) => (
+                                <p key={i}>{line.trim()}</p>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (isVoteResult) {
+                      return (
+                        <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                          <div className="mx-auto max-w-sm rounded-xl border border-red-200 bg-red-50/60 p-3 text-center dark:border-red-900/40 dark:bg-red-950/20">
+                            <Vote className="mx-auto mb-1.5 h-4 w-4 text-red-500" />
+                            <div className="text-xs font-semibold text-red-700 dark:text-red-400">投票结果</div>
+                            <div className="mt-1.5 text-xs text-muted-foreground leading-relaxed">
+                              {message.content.replace('投票完成：', '').split('。').filter(Boolean).map((line, i) => (
+                                <p key={i}>{line.trim()}</p>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (isElimination) {
+                      return (
+                        <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                          <div className="mx-auto max-w-xs rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-2 text-center dark:border-amber-900/40 dark:bg-amber-950/20">
+                            <AlertCircle className="mx-auto mb-1 h-3.5 w-3.5 text-amber-600" />
+                            <div className="text-xs text-amber-800 dark:text-amber-300">{message.content}</div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (isGameStart) {
+                      return (
+                        <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                          <div className="mx-auto max-w-sm rounded-lg border border-[#ff6600]/30 bg-orange-50/60 px-4 py-2.5 text-center dark:bg-orange-950/20">
+                            <Play className="mx-auto mb-1 h-3.5 w-3.5 text-[#ff6600]" />
+                            <div className="text-xs font-medium text-[#ff6600]">{message.content}</div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                        <div className="mx-auto max-w-xs rounded-lg bg-muted px-4 py-2 text-center">
+                          <div className="text-xs text-muted-foreground">{message.content}</div>
+                        </div>
+                      </div>
+                    );
                   }
                   return (
                     <div key={message.id} className={`animate-in fade-in-0 slide-in-from-bottom-2 duration-300 flex items-start gap-2 ${mine ? 'justify-end' : ''}`}>
