@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageSquareIcon, PlusCircleIcon, MenuIcon, PanelLeftCloseIcon, Sun, Moon, Monitor } from "lucide-react";
+import { MessageSquareIcon, PlusCircleIcon, MenuIcon, PanelLeftCloseIcon, Sun, Moon, Monitor, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import GitHubButton from 'react-github-btn';
 import '@fontsource/audiowide';
@@ -179,6 +179,20 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
                 </a>
               ))}
               
+              <a 
+                      href="/ai-game" 
+                      className={cn(
+                        "flex items-center gap-1 rounded-md px-3 py-2.5 text-sm font-medium transition-all hover:bg-accent/80 group mt-3",
+                        !isOpen && "md:justify-center"
+                      )}
+                    >
+                      <Bot className="h-5 w-5 flex-shrink-0 text-rose-500 group-hover:text-rose-600" />
+                      <span className={cn(
+                        "transition-all duration-200 whitespace-nowrap overflow-hidden text-foreground/90",
+                        isOpen ? "opacity-100 max-w-full" : "opacity-0 max-w-0 md:max-w-0"
+                      )}>谁是 AI</span>
+                    </a>
+
               <a 
                       href="#" 
                       className={cn(
