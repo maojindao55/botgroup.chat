@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Bot, Check, Copy, Eye, MessageSquare, Play, Send, Share2, Users, Vote, AlertCircle, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
@@ -67,6 +67,24 @@ function RuleList({ items }: { items: string[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function VoteRecord({ voterName, targetName }: { voterName: string; targetName: string }) {
+  const voterAvatar = getAvatarData(voterName);
+  const targetAvatar = getAvatarData(targetName);
+  return (
+    <div className="flex items-center gap-1.5 text-xs">
+      <Avatar className="h-5 w-5">
+        <AvatarFallback style={{ backgroundColor: voterAvatar.backgroundColor, color: 'white', fontSize: 10 }}>{voterName[0]}</AvatarFallback>
+      </Avatar>
+      <span className="truncate font-medium">{voterName}</span>
+      <span className="text-muted-foreground">→</span>
+      <Avatar className="h-5 w-5">
+        <AvatarFallback style={{ backgroundColor: targetAvatar.backgroundColor, color: 'white', fontSize: 10 }}>{targetName[0]}</AvatarFallback>
+      </Avatar>
+      <span className="truncate font-medium">{targetName}</span>
+    </div>
   );
 }
 
@@ -520,16 +538,34 @@ function AiGameRoom() {
                     }
 
                     if (isVoteResult) {
+                      const votePart = message.content.match(/投票完成：(.*?)。/)?.[1] || '';
+                      const resultPart = message.content.replace(/投票完成：.*?。/, '').replace(/^投票完成：/, '');
+                      const votePairs = votePart.split(/[，,]/).map((s: string) => {
+                        const m = s.trim().match(/^(.+?)\s*->\s*(.+)$/);
+                        return m ? { voter: m[1].trim(), target: m[2].trim() } : null;
+                      }).filter(Boolean) as { voter: string; target: string }[];
+                      const resultLines = resultPart.split('。').map((s: string) => s.trim()).filter(Boolean);
                       return (
                         <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                          <div className="mx-auto max-w-sm rounded-xl border border-red-200 bg-red-50/60 p-3 text-center dark:border-red-900/40 dark:bg-red-950/20">
-                            <Vote className="mx-auto mb-1.5 h-4 w-4 text-red-500" />
-                            <div className="text-xs font-semibold text-red-700 dark:text-red-400">投票结果</div>
-                            <div className="mt-1.5 text-xs text-muted-foreground leading-relaxed">
-                              {message.content.replace('投票完成：', '').split('。').filter(Boolean).map((line, i) => (
-                                <p key={i}>{line.trim()}</p>
-                              ))}
+                          <div className="mx-auto max-w-sm rounded-xl border border-red-200 bg-red-50/60 p-3 shadow-sm dark:border-red-900/40 dark:bg-red-950/20">
+                            <div className="mb-2 flex items-center justify-center gap-1.5">
+                              <Vote className="h-4 w-4 text-red-500" />
+                              <span className="text-xs font-semibold text-red-700 dark:text-red-400">投票记录</span>
                             </div>
+                            {votePairs.length > 0 && (
+                              <div className="space-y-1.5 rounded-lg bg-white/60 p-2 dark:bg-black/20">
+                                {votePairs.map((pair, i) => (
+                                  <VoteRecord key={i} voterName={pair.voter} targetName={pair.target} />
+                                ))}
+                              </div>
+                            )}
+                            {resultLines.length > 0 && (
+                              <div className="mt-2 space-y-0.5 text-xs text-muted-foreground leading-relaxed text-center">
+                                {resultLines.map((line, i) => (
+                                  <p key={i}>{line}</p>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
