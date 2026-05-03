@@ -675,26 +675,36 @@ function AiGameRoom() {
                 <div className="text-xs text-muted-foreground">{activeCandidatePlayers.length}/{room.max_players}</div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {candidatePlayers.map(player => (
-                  <button
-                    key={player.id}
-                    onClick={() => setSelectedVote(player.id)}
-                    disabled={!canGuess || player.id === currentPlayer?.id || player.player_type === 'observer' || !!player.eliminated_at}
-                    className={`flex items-center gap-2 rounded-lg border p-2 text-left transition-colors ${selectedVote === player.id ? 'border-[#ff6600] bg-orange-50 dark:bg-orange-950/20' : 'hover:bg-accent'} ${player.id === currentPlayer?.id || player.eliminated_at ? 'opacity-70' : ''}`}
-                  >
-                    <PlayerAvatar player={player} revealed={revealed} />
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{player.display_name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {isUndercoverMode && player.eliminated_at && !revealed
-                          ? '已出局'
-                          : isUndercoverMode && revealed
-                            ? `${parseUndercoverMeta(player.ai_persona)?.role === 'undercover' ? '卧底' : '平民'}${player.eliminated_at ? ' · 已出局' : ''}`
-                          : isJuryMode && !revealed ? (player.id === currentPlayer?.id ? '被告' : '法庭角色') : revealed ? (player.secret_role === 'ai' ? 'AI' : player.secret_role === 'observer' ? '观察者' : '真人') : player.id === currentPlayer?.id ? '你' : '身份未知'}
+                {candidatePlayers.map(player => {
+                  const isOut = !!player.eliminated_at && !revealed;
+                  return (
+                    <button
+                      key={player.id}
+                      onClick={() => setSelectedVote(player.id)}
+                      disabled={!canGuess || player.id === currentPlayer?.id || player.player_type === 'observer' || !!player.eliminated_at}
+                      className={`relative flex items-center gap-2 rounded-lg border p-2 text-left transition-colors ${selectedVote === player.id ? 'border-[#ff6600] bg-orange-50 dark:bg-orange-950/20' : 'hover:bg-accent'} ${player.id === currentPlayer?.id ? 'opacity-70' : ''}`}
+                    >
+                      <div className={`relative ${isOut ? 'opacity-50 grayscale' : ''}`}>
+                        <PlayerAvatar player={player} revealed={revealed} />
+                        {isOut && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="h-0.5 w-full rotate-45 bg-red-500 rounded-full" />
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  </button>
-                ))}
+                      <div className="min-w-0 flex-1">
+                        <div className={`truncate text-sm font-medium ${isOut ? 'line-through text-muted-foreground' : ''}`}>{player.display_name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {isOut
+                            ? <span className="font-medium text-red-500">已出局</span>
+                            : isUndercoverMode && revealed
+                              ? `${parseUndercoverMeta(player.ai_persona)?.role === 'undercover' ? '卧底' : '平民'}${player.eliminated_at ? ' · ' : ''}{player.eliminated_at && <span className="text-red-500">已出局</span>}`
+                              : isJuryMode && !revealed ? (player.id === currentPlayer?.id ? '被告' : '法庭角色') : revealed ? (player.secret_role === 'ai' ? 'AI' : player.secret_role === 'observer' ? '观察者' : '真人') : player.id === currentPlayer?.id ? '你' : '身份未知'}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
