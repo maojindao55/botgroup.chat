@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { modelConfigs } from '../../src/config/aiCharacters';
+import { generateUndercoverFallbackReply } from './aiGameFallback';
 
 export const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status,
@@ -576,23 +577,33 @@ export async function generateUndercoverReply(env: any, player: any, room: any, 
     `你的身份：${meta.role === 'undercover' ? '卧底' : '平民'}`,
   ].join('\n');
 
-  const completion = await openai.chat.completions.create({
-    model: config.model,
-    messages: [
-      { role: 'system', content: prompt },
-      { role: 'user', content: `最近发言：\n${recent || '暂无'}\n\n你自己之前说过：\n${ownHistory || '暂无'}\n\n请按“${angle}”发一条新的描述，不能出现“${meta.word}”这几个字，也不要复用自己以前的句式。` },
-    ],
-    temperature: 0.95,
-    presence_penalty: 0.6,
-    frequency_penalty: 0.5,
-  });
+  try {
+    const completion = await openai.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: `最近发言：\n${recent || '暂无'}\n\n你自己之前说过：\n${ownHistory || '暂无'}\n\n请按“${angle}”发一条新的描述，不能出现“${meta.word}”这几个字，也不要复用自己以前的句式。` },
+      ],
+      temperature: 0.95,
+      presence_penalty: 0.6,
+      frequency_penalty: 0.5,
+    });
 
-  return (completion.choices[0]?.message?.content?.trim() || '这个东西挺常见的，大家应该都接触过。')
-    .replace(new RegExp(escapeRegExp(meta.word), 'g'), '这个东西')
-    .replace(new RegExp(`^${player.display_name}[：:]\\s*`), '')
-    .replace(/[\r\n]+/g, ' ')
-    .trim()
-    .slice(0, 90);
+    return (completion.choices[0]?.message?.content?.trim() || '这个东西挺常见的，大家应该都接触过。')
+      .replace(new RegExp(escapeRegExp(meta.word), 'g'), '这个东西')
+      .replace(new RegExp(`^${player.display_name}[：:]\\s*`), '')
+      .replace(/[\r\n]+/g, ' ')
+      .trim()
+      .slice(0, 90);
+  } catch (error) {
+    console.warn('undercover ai reply fallback:', error);
+    return generateUndercoverFallbackReply({
+      playerId: player.id,
+      word: meta.word,
+      messageCount: messages.length,
+      ownTurnCount,
+    });
+  }
 }
 
 export async function generateUndercoverVote(env: any, voter: any, players: any[], messages: any[]) {

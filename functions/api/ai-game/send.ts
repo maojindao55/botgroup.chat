@@ -29,7 +29,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     ).bind(playerId, roomId).first();
     if (!player) return json({ success: false, message: '玩家不存在' }, 404);
     if (player.eliminated_at) return json({ success: false, message: '你已出局，不能继续发言' }, 403);
-    if (player.player_type !== 'human' && player.player_type !== 'observer') return json({ success: false, message: '当前玩家不能发送这条消息' }, 403);
+    if (player.player_type !== 'human') return json({ success: false, message: '围观者不能发言' }, 403);
 
     const result = await db.prepare(
       `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)

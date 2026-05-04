@@ -30,7 +30,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const target = await db.prepare(`SELECT id, player_type, eliminated_at FROM ai_game_players WHERE room_id = ? AND id = ?`)
       .bind(roomId, targetPlayerId).first();
     if (!voter || !target) return json({ success: false, message: '玩家不存在' }, 404);
-    if (voter.player_type !== 'human' && voter.player_type !== 'observer') return json({ success: false, message: '当前玩家不能投票' }, 403);
+    if (voter.player_type !== 'human') return json({ success: false, message: '围观者不能投票' }, 403);
     if (voterPlayerId === targetPlayerId) return json({ success: false, message: '不能投自己' }, 400);
     if (voter.eliminated_at) return json({ success: false, message: '你已出局，不能投票' }, 403);
     if (target.player_type === 'observer') return json({ success: false, message: '不能投观察者' }, 400);

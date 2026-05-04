@@ -18,6 +18,7 @@ import type { AiGameCampaignLevel } from '@/config/aiGame';
 import { request } from '@/utils/request';
 import { getAvatarData } from '@/utils/avatar';
 import type { CurrentPlayerSecret, GameMessage, GamePlayer, GameResult, GameRoomData } from './types';
+import { getPlayerRoleLabel, parseVoteResultMessage } from './voteMessage';
 
 const playerStorageKey = (roomId: string) => `ai-game-player:${roomId}`;
 const roomLevelStorageKey = (roomId: string) => `ai-game-room-level:${roomId}`;
@@ -121,20 +122,45 @@ function RuleList({ items }: { items: string[] }) {
   );
 }
 
-function VoteRecord({ voterName, targetName }: { voterName: string; targetName: string }) {
+function VoteRoleBadge({ label }: { label?: string | null }) {
+  if (!label) return null;
+  const highlight = label === '卧底' || label === 'AI';
+  return (
+    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none ${highlight ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' : 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'}`}>
+      {label}
+    </span>
+  );
+}
+
+function VoteRecord({
+  voterName,
+  targetName,
+  voterRole,
+  targetRole,
+  targetEliminated,
+}: {
+  voterName: string;
+  targetName: string;
+  voterRole?: string | null;
+  targetRole?: string | null;
+  targetEliminated?: boolean;
+}) {
   const voterAvatar = getAvatarData(voterName);
   const targetAvatar = getAvatarData(targetName);
   return (
-    <div className="flex items-center gap-1.5 text-xs">
+    <div className="flex min-w-0 items-center gap-1.5 text-xs">
       <Avatar className="h-5 w-5">
         <AvatarFallback style={{ backgroundColor: voterAvatar.backgroundColor, color: 'white', fontSize: 10 }}>{voterName[0]}</AvatarFallback>
       </Avatar>
-      <span className="truncate font-medium">{voterName}</span>
+      <span className="min-w-0 truncate font-medium">{voterName}</span>
+      <VoteRoleBadge label={voterRole} />
       <span className="text-muted-foreground">→</span>
-      <Avatar className="h-5 w-5">
+      <Avatar className={`h-5 w-5 ${targetEliminated ? 'opacity-50 grayscale' : ''}`}>
         <AvatarFallback style={{ backgroundColor: targetAvatar.backgroundColor, color: 'white', fontSize: 10 }}>{targetName[0]}</AvatarFallback>
       </Avatar>
-      <span className="truncate font-medium">{targetName}</span>
+      <span className={`min-w-0 truncate font-medium ${targetEliminated ? 'line-through text-muted-foreground' : ''}`}>{targetName}</span>
+      <VoteRoleBadge label={targetRole} />
+      {targetEliminated && <span className="flex-none font-medium text-red-500">已出局</span>}
     </div>
   );
 }
@@ -255,13 +281,13 @@ function GameControlPanel({
       </div>
 
       <div className={`${compact ? '' : 'flex-1 overflow-y-auto'} p-2.5 md:p-4`}>
-        {isUndercoverMode && !revealed && room.status === 'playing' && !currentPlayerSecret?.word && (
+        {isUndercoverMode && !isObserver && !revealed && room.status === 'playing' && !currentPlayerSecret?.word && (
           <div className="mb-3 rounded-lg border border-[#c2410c]/30 bg-orange-50 p-3 dark:bg-orange-950/20 animate-pulse">
             <div className="text-xs text-muted-foreground">正在分配词语…</div>
             <div className="mt-1 text-lg font-semibold tracking-normal text-[#c2410c]/60">生成中</div>
           </div>
         )}
-        {isUndercoverMode && !revealed && currentPlayerSecret?.word && (
+        {isUndercoverMode && !isObserver && !revealed && currentPlayerSecret?.word && (
           <div className="mb-3 rounded-lg border border-[#c2410c]/30 bg-orange-50 p-3 dark:bg-orange-950/20">
             <div className="text-xs text-muted-foreground">你的词语</div>
             <div className="mt-1 text-2xl font-semibold tracking-normal text-[#c2410c]">{currentPlayerSecret.word}</div>
@@ -329,6 +355,13 @@ function GameControlPanel({
 
         {effectiveStatus === 'playing' && !campaignTimedOut && (
           <div className="space-y-3">
+            {isObserver ? (
+              <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                <div className="font-medium text-foreground">围观中</div>
+                <div className="mt-1">你正在观看本局，不能发言、投票或揭晓身份。</div>
+              </div>
+            ) : (
+              <>
             {!compact && (
               <div className="rounded-lg bg-muted p-3">
                 <div className="mb-2 text-sm font-medium">当前目标</div>
@@ -355,10 +388,12 @@ function GameControlPanel({
             <Button onClick={() => onConfirm('reveal')} disabled={!canReveal || busy} className="w-full">
               {isUndercoverMode ? '揭晓身份' : isJuryMode ? '请求宣判' : '直接揭晓'}
             </Button>
+              </>
+            )}
           </div>
         )}
 
-        {effectiveStatus === 'voting' && !isJuryMode && !campaignTimedOut && (
+        {effectiveStatus === 'voting' && !isJuryMode && !campaignTimedOut && !isObserver && (
           <div className="space-y-3">
             <Button onClick={() => onConfirm('vote')} disabled={!selectedVote || !currentPlayer || busy} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
               {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />投票中…</> : '提交投票'}
@@ -461,6 +496,7 @@ function MobileActionCard({
   campaignTimedOut,
   busy,
   revealed,
+  isObserver,
   isJuryMode,
   isUndercoverMode,
   result,
@@ -558,17 +594,26 @@ function MobileActionCard({
     return null;
   }
 
+  if (isObserver) {
+    return (
+      <div className="rounded-lg border bg-card p-3 shadow-sm md:hidden">
+        <div className="text-sm font-medium">围观中</div>
+        <div className="mt-1 text-xs text-muted-foreground">你正在观看本局，不能发言、投票或揭晓身份。</div>
+      </div>
+    );
+  }
+
   if (!showVotePicker) {
     return (
       <div className="rounded-lg border bg-card p-2 shadow-sm md:hidden">
         <div className="flex items-center gap-2">
-      {isUndercoverMode && !currentPlayerSecret?.word && room.status === 'playing' && (
+      {isUndercoverMode && !isObserver && !currentPlayerSecret?.word && room.status === 'playing' && (
         <div className="mb-2 flex items-center justify-between rounded-lg bg-muted px-3 py-2 animate-pulse">
           <span className="text-xs text-muted-foreground">正在分配词语…</span>
           <span className="text-sm font-semibold text-[#c2410c]/60">生成中</span>
         </div>
       )}
-      {isUndercoverMode && currentPlayerSecret?.word && (
+      {isUndercoverMode && !isObserver && currentPlayerSecret?.word && (
             <div className="min-w-0 flex-1 rounded-lg border border-[#c2410c]/25 bg-orange-50 px-2.5 py-1.5 dark:bg-orange-950/20">
               <div className="text-[11px] leading-4 text-muted-foreground">你的词语</div>
               <div className="truncate text-sm font-semibold tracking-normal text-[#c2410c]">{currentPlayerSecret.word}</div>
@@ -603,13 +648,13 @@ function MobileActionCard({
         </Button>
       </div>
 
-      {isUndercoverMode && !currentPlayerSecret?.word && room.status === 'playing' && (
+      {isUndercoverMode && !isObserver && !currentPlayerSecret?.word && room.status === 'playing' && (
         <div className="mb-2 flex items-center justify-between rounded-lg bg-muted px-3 py-2 animate-pulse">
           <span className="text-xs text-muted-foreground">正在分配词语…</span>
           <span className="text-sm font-semibold text-[#c2410c]/60">生成中</span>
         </div>
       )}
-      {isUndercoverMode && currentPlayerSecret?.word && (
+      {isUndercoverMode && !isObserver && currentPlayerSecret?.word && (
         <div className="mb-2 flex items-center justify-between rounded-lg bg-muted px-3 py-2">
           <span className="text-xs text-muted-foreground">你的词语</span>
           <span className="max-w-[60%] truncate text-sm font-semibold text-[#c2410c]">{currentPlayerSecret.word}</span>
@@ -890,6 +935,7 @@ function AiGameHome() {
 function AiGameRoom() {
   const { roomId = '' } = useParams();
   const navigate = useNavigate();
+  const observeInvite = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('observe') === '1';
   const [room, setRoom] = useState<GameRoomData | null>(null);
   const [players, setPlayers] = useState<GamePlayer[]>([]);
   const [result, setResult] = useState<GameResult | null>(null);
@@ -907,6 +953,7 @@ function AiGameRoom() {
   const [confirmAction, setConfirmAction] = useState<'vote' | 'reveal' | null>(null);
   const lastMessageIdRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const observeJoinAttemptedRef = useRef('');
 
   const currentPlayer = useMemo(() => players.find(player => player.id === playerId), [players, playerId]);
   const latestUndercoverVoteResultId = useMemo(() => {
@@ -1031,6 +1078,35 @@ function AiGameRoom() {
     }
   };
 
+  const joinAsObserver = useCallback(async () => {
+    if (!roomId || playerId || observeJoinAttemptedRef.current === roomId) return;
+    observeJoinAttemptedRef.current = roomId;
+    setBusy(true);
+    try {
+      const res = await request('/api/ai-game/join', {
+        method: 'POST',
+        body: JSON.stringify({ roomId, displayName: name || '观众', joinAs: 'observer' }),
+      });
+      const data = await res.json();
+      localStorage.setItem(playerStorageKey(roomId), data.data.playerId);
+      localStorage.setItem('ai-game-name', name || '观众');
+      setPlayerId(data.data.playerId);
+      if (data.data.message) toast.info(data.data.message);
+      else toast.success('已进入围观模式');
+    } catch (error: any) {
+      observeJoinAttemptedRef.current = '';
+      toast.error(error.message || '进入围观失败');
+    } finally {
+      setBusy(false);
+    }
+  }, [name, playerId, roomId]);
+
+  useEffect(() => {
+    if (observeInvite && !playerId) {
+      joinAsObserver();
+    }
+  }, [joinAsObserver, observeInvite, playerId]);
+
   const start = async () => {
     setBusy(true);
     try {
@@ -1108,6 +1184,16 @@ function AiGameRoom() {
     setTimeout(() => setCopied(false), 1800);
   };
 
+  const copyObserveInvite = async () => {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.searchParams.set('observe', '1');
+    await navigator.clipboard.writeText(url.toString());
+    setCopied(true);
+    toast.success('围观链接已复制');
+    setTimeout(() => setCopied(false), 1800);
+  };
+
   const createCampaignRoomFromLevel = async (level: AiGameCampaignLevel) => {
     setBusy(true);
     try {
@@ -1156,8 +1242,8 @@ function AiGameRoom() {
   const currentPlayerEliminated = !!currentPlayer?.eliminated_at;
   const campaignTimedOut = !!campaignLevel && !revealed && room.status === 'playing' && secondsLeft <= 0;
   const needsNewDescriptionBeforeVote = isUndercoverMode && latestUndercoverVoteResultId > 0 && latestOwnDescriptionId < latestUndercoverVoteResultId;
-  const canVote = !!currentPlayer && !currentPlayerEliminated && (currentStatus === 'playing' || currentStatus === 'voting') && !revealed && !needsNewDescriptionBeforeVote && !campaignTimedOut;
-  const canSpeak = !!currentPlayer && !currentPlayerEliminated && currentStatus === 'playing' && !campaignTimedOut;
+  const canVote = !!currentPlayer && !isObserver && !currentPlayerEliminated && (currentStatus === 'playing' || currentStatus === 'voting') && !revealed && !needsNewDescriptionBeforeVote && !campaignTimedOut;
+  const canSpeak = !!currentPlayer && !isObserver && !currentPlayerEliminated && currentStatus === 'playing' && !campaignTimedOut;
   const canReveal = !campaignLevel && !campaignTimedOut;
   const canGuess = canVote && !isJuryMode;
   const voteHint = needsNewDescriptionBeforeVote ? '上一轮已完成投票，请先继续描述后再投下一轮。' : undefined;
@@ -1215,9 +1301,9 @@ function AiGameRoom() {
               </div>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={copyShare}>
+          <Button variant="outline" size="sm" onClick={copyObserveInvite}>
             {copied ? <Check className="mr-1 h-4 w-4" /> : <Share2 className="mr-1 h-4 w-4" />}
-            分享
+            邀请围观
           </Button>
         </header>
 
@@ -1258,13 +1344,7 @@ function AiGameRoom() {
                     const isElimination = message.content.includes('出局') && !isGameOver;
 
                     if (isGameOver) {
-                      const votePart = message.content.match(/投票完成：(.*?)。/)?.[1] || '';
-                      const resultPart = message.content.replace(/投票完成：.*?。/, '').replace(/^投票完成：/, '');
-                      const votePairs = votePart.split(/[，,]/).map((s: string) => {
-                        const m = s.trim().match(/^(.+?)\s*->\s*(.+)$/);
-                        return m ? { voter: m[1].trim(), target: m[2].trim() } : null;
-                      }).filter(Boolean) as { voter: string; target: string }[];
-                      const resultLines = resultPart.split('。').map((s: string) => s.trim()).filter(Boolean);
+                      const { votes: votePairs, eliminatedName, resultLines } = parseVoteResultMessage(message.content);
                       return (
                         <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
                           <div className="mx-auto max-w-sm rounded-xl border-2 border-[#c2410c]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#c2410c]/30">
@@ -1272,9 +1352,20 @@ function AiGameRoom() {
                             <div className="text-center text-sm font-semibold text-foreground">游戏结束</div>
                             {votePairs.length > 0 && (
                               <div className="mt-3 space-y-1.5 rounded-lg bg-white/60 p-2 dark:bg-black/20">
-                                {votePairs.map((pair, i) => (
-                                  <VoteRecord key={i} voterName={pair.voter} targetName={pair.target} />
-                                ))}
+                                {votePairs.map((pair, i) => {
+                                  const voter = candidatePlayers.find(player => player.display_name === pair.voter);
+                                  const target = candidatePlayers.find(player => player.display_name === pair.target);
+                                  return (
+                                    <VoteRecord
+                                      key={i}
+                                      voterName={pair.voter}
+                                      targetName={pair.target}
+                                      voterRole={getPlayerRoleLabel({ player: voter, isUndercoverMode })}
+                                      targetRole={getPlayerRoleLabel({ player: target, isUndercoverMode })}
+                                      targetEliminated={pair.target === eliminatedName}
+                                    />
+                                  );
+                                })}
                               </div>
                             )}
                             {resultLines.length > 0 && (
@@ -1290,13 +1381,7 @@ function AiGameRoom() {
                     }
 
                     if (isVoteResult) {
-                      const votePart = message.content.match(/投票完成：(.*?)。/)?.[1] || '';
-                      const resultPart = message.content.replace(/投票完成：.*?。/, '').replace(/^投票完成：/, '');
-                      const votePairs = votePart.split(/[，,]/).map((s: string) => {
-                        const m = s.trim().match(/^(.+?)\s*->\s*(.+)$/);
-                        return m ? { voter: m[1].trim(), target: m[2].trim() } : null;
-                      }).filter(Boolean) as { voter: string; target: string }[];
-                      const resultLines = resultPart.split('。').map((s: string) => s.trim()).filter(Boolean);
+                      const { votes: votePairs, eliminatedName, resultLines } = parseVoteResultMessage(message.content);
                       return (
                         <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
                           <div className="mx-auto max-w-sm rounded-xl border border-red-200 bg-red-50/60 p-3 shadow-sm dark:border-red-900/40 dark:bg-red-950/20">
@@ -1307,7 +1392,12 @@ function AiGameRoom() {
                             {votePairs.length > 0 && (
                               <div className="space-y-1.5 rounded-lg bg-white/60 p-2 dark:bg-black/20">
                                 {votePairs.map((pair, i) => (
-                                  <VoteRecord key={i} voterName={pair.voter} targetName={pair.target} />
+                                  <VoteRecord
+                                    key={i}
+                                    voterName={pair.voter}
+                                    targetName={pair.target}
+                                    targetEliminated={pair.target === eliminatedName}
+                                  />
                                 ))}
                               </div>
                             )}

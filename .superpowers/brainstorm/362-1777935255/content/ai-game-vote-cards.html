@@ -1,0 +1,65 @@
+<h2>ai-game 投票结果卡片标注方案</h2>
+<p class="subtitle">预览普通投票记录和游戏结束卡片的最小改动方向。</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">普通投票记录</div>
+    <div class="mockup-body">
+      <div style="max-width:360px;margin:0 auto;border:1px solid #fecaca;background:#fef2f2;border-radius:12px;padding:12px;font-family:system-ui;">
+        <div style="display:flex;justify-content:center;gap:6px;align-items:center;margin-bottom:10px;color:#b91c1c;font-size:12px;font-weight:700;">
+          <span>投票记录</span>
+        </div>
+        <div style="background:rgba(255,255,255,.7);border-radius:10px;padding:8px;display:grid;gap:8px;font-size:12px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <strong>你</strong><span style="color:#777">-></span><strong>阿哲</strong>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <strong>小秋</strong><span style="color:#777">-></span><strong style="color:#777;text-decoration:line-through;">阿哲</strong><span style="color:#ef4444;font-weight:600;">已出局</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <strong>林川</strong><span style="color:#777">-></span><strong>小秋</strong>
+          </div>
+        </div>
+        <div style="margin-top:8px;text-align:center;color:#777;font-size:12px;">多数票投出 阿哲，身份暂不公布，继续下一轮描述</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">游戏结束卡片</div>
+    <div class="mockup-body">
+      <div style="max-width:360px;margin:0 auto;border:2px solid rgba(194,65,12,.4);background:#fff7ed;border-radius:14px;padding:16px;font-family:system-ui;">
+        <div style="text-align:center;font-weight:700;margin-bottom:10px;">游戏结束</div>
+        <div style="background:rgba(255,255,255,.72);border-radius:10px;padding:8px;display:grid;gap:8px;font-size:12px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <strong>你</strong><span style="background:#dcfce7;color:#166534;border-radius:999px;padding:2px 7px;">平民</span><span style="color:#777">-></span><strong style="color:#777;text-decoration:line-through;">阿哲</strong><span style="background:#fee2e2;color:#991b1b;border-radius:999px;padding:2px 7px;">卧底</span><span style="color:#ef4444;font-weight:600;">已出局</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <strong>小秋</strong><span style="background:#dcfce7;color:#166534;border-radius:999px;padding:2px 7px;">平民</span><span style="color:#777">-></span><strong>阿哲</strong><span style="background:#fee2e2;color:#991b1b;border-radius:999px;padding:2px 7px;">卧底</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <strong>林川</strong><span style="background:#dcfce7;color:#166534;border-radius:999px;padding:2px 7px;">平民</span><span style="color:#777">-></span><strong>小秋</strong><span style="background:#dcfce7;color:#166534;border-radius:999px;padding:2px 7px;">平民</span>
+          </div>
+        </div>
+        <div style="margin-top:8px;text-align:center;color:#777;font-size:12px;">多数票投出 阿哲，游戏结束，身份已揭晓</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="confirm" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>按这个方向实现</h3>
+      <p>普通投票用玩家列表同款弱化/删除线/红色“已出局”；游戏结束时给投票双方显示身份，并用同款样式标出出局玩家。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="all-rounds-roles" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>普通投票也显示身份</h3>
+      <p>会提前暴露身份，不符合“身份暂不公布”的规则，除非你明确想这样。</p>
+    </div>
+  </div>
+</div>
