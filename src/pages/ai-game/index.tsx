@@ -430,10 +430,12 @@ function GameControlPanel({
               {copied ? <Check className="mr-2 h-4 w-4" /> : <Share2 className="mr-2 h-4 w-4" />}
               复制战绩
             </Button>
-            <Button onClick={onNewGame} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
-              <Play className="mr-2 h-4 w-4" />
-              再来一局
-            </Button>
+            {!onReplay && (
+              <Button onClick={onNewGame} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                <Play className="mr-2 h-4 w-4" />
+                再来一局
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -527,10 +529,12 @@ function MobileActionCard({
           </div>
         </div>
         {result?.summary && <div className="mt-2 max-h-10 overflow-hidden text-xs text-muted-foreground">{result.summary}</div>}
-        <Button onClick={onNewGame} size="sm" className="mt-2 w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
-          <Play className="mr-1 h-3.5 w-3.5" />
-          再来一局
-        </Button>
+        {!onReplay && (
+          <Button onClick={onNewGame} size="sm" className="mt-2 w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
+            <Play className="mr-1 h-3.5 w-3.5" />
+            再来一局
+          </Button>
+        )}
       </div>
     );
   }
