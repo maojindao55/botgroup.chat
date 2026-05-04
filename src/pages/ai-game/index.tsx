@@ -505,36 +505,26 @@ function MobileActionCard({
 
   if (revealed) {
     return (
-      <div className="rounded-lg border bg-card p-3 shadow-sm md:hidden">
-        <div className="mb-2 flex items-center justify-between">
-          <div className="text-sm font-medium">{isJuryMode ? '已宣判' : '身份揭晓'}</div>
-          <Button size="sm" variant="outline" onClick={onCopyShare}>
-            {copied ? <Check className="mr-1 h-3.5 w-3.5" /> : <Share2 className="mr-1 h-3.5 w-3.5" />}
-            战绩
-          </Button>
-        </div>
-        <div className="max-h-[22dvh] overflow-y-auto">
-          <div className="grid grid-cols-2 gap-2">
-            {candidatePlayers.map(player => {
-              const isUndercover = isUndercoverMode && parseUndercoverMeta(player.ai_persona)?.role === 'undercover';
-              const isAi = !isUndercoverMode && player.secret_role === 'ai';
-              const roleLabel = isUndercoverMode ? (isUndercover ? '卧底' : '平民') : (isAi ? 'AI' : '真人');
-              return (
-                <div key={player.id} className="min-w-0 rounded-lg bg-muted px-2 py-1.5">
-                  <div className="truncate text-xs font-medium">{player.display_name}</div>
-                  <div className={`text-xs ${isUndercover || isAi ? 'text-red-500' : 'text-green-600'}`}>{roleLabel}</div>
-                </div>
-              );
-            })}
+      <div className="rounded-lg border bg-card p-2.5 shadow-sm md:hidden">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <span className="text-xs font-medium">{isUndercoverMode
+              ? (Number(result?.human_accuracy) === 1 ? '✅ 猜中卧底' : '❌ 猜错了')
+              : isJuryMode ? '已宣判' : '身份揭晓'}</span>
+          </div>
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="outline" onClick={onCopyShare} className="h-7 px-2 text-xs">
+              {copied ? <Check className="mr-1 h-3 w-3" /> : <Share2 className="mr-1 h-3 w-3" />}
+              分享
+            </Button>
+            {!onReplay && (
+              <Button onClick={onNewGame} size="sm" className="h-7 bg-[#c2410c] px-2 text-xs text-white hover:bg-[#9a3412]">
+                <Play className="mr-1 h-3 w-3" />
+                再来一局
+              </Button>
+            )}
           </div>
         </div>
-        {result?.summary && <div className="mt-2 max-h-10 overflow-hidden text-xs text-muted-foreground">{result.summary}</div>}
-        {!onReplay && (
-          <Button onClick={onNewGame} size="sm" className="mt-2 w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
-            <Play className="mr-1 h-3.5 w-3.5" />
-            再来一局
-          </Button>
-        )}
       </div>
     );
   }
