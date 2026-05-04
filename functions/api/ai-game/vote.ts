@@ -17,6 +17,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const room = await getRoom(db, roomId);
     if (!room) return json({ success: false, message: '房间不存在' }, 404);
     if (room.status !== 'voting' && room.status !== 'playing') return json({ success: false, message: '当前不能投票' }, 400);
+    if (String(room.title || '').startsWith('卧底晋级赛')) {
+      const expired = await db.prepare(
+        `SELECT 1 as expired
+         WHERE datetime(?, '+' || ? || ' seconds') <= CURRENT_TIMESTAMP`
+      ).bind(room.started_at, room.duration_seconds).first();
+      if (expired) return json({ success: false, message: '本关已超时，挑战失败' }, 400);
+    }
 
     const voter = await db.prepare(`SELECT id, display_name, player_type, eliminated_at FROM ai_game_players WHERE room_id = ? AND id = ?`)
       .bind(roomId, voterPlayerId).first();
@@ -30,6 +37,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (target.eliminated_at) return json({ success: false, message: '不能投已出局玩家' }, 400);
 
     if (room.mode === 'undercover') {
+      const latestVoteResult = await db.prepare(
+        `SELECT id FROM ai_game_messages
+         WHERE room_id = ? AND sender_type = 'system' AND content LIKE '投票完成%'
+         ORDER BY id DESC LIMIT 1`
+      ).bind(roomId).first();
+      if (latestVoteResult?.id) {
+        const latestVoterMessage = await db.prepare(
+          `SELECT id FROM ai_game_messages
+           WHERE room_id = ? AND player_id = ? AND sender_type = 'human'
+           ORDER BY id DESC LIMIT 1`
+        ).bind(roomId, voterPlayerId).first();
+        if (!latestVoterMessage?.id || Number(latestVoterMessage.id) < Number(latestVoteResult.id)) {
+          return json({ success: false, message: '本轮已经投过票，请先继续描述后再投下一轮' }, 400);
+        }
+      }
+
       await db.prepare(`DELETE FROM ai_game_votes WHERE room_id = ?`).bind(roomId).run();
     }
 
@@ -117,9 +140,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           const groupSucceeded = humanMeta?.role === 'undercover'
             ? eliminated?.id !== humanPlayer?.id && eliminatedMeta?.role === 'civilian'
             : eliminatedMeta?.role === 'undercover';
+          const isCampaignRoom = String(room.title || '').startsWith('卧底晋级赛');
+          const wordRevealText = `平民词是「${pair?.civilianWord || ''}」，卧底词是「${pair?.undercoverWord || ''}」。`;
           const summary = humanMeta?.role === 'undercover'
-            ? `你是卧底，词语是「${humanMeta.word}」。你投给了 ${humanTarget?.display_name || '未知'}（${humanTargetMeta?.role === 'undercover' ? '卧底' : '平民'}），${playerGuessCorrect ? '这次甩锅方向是对的' : '这票没有成功甩到平民身上'}。多数票投出 ${eliminated?.display_name || '未知'}（${eliminatedMeta?.role === 'undercover' ? '卧底' : '平民'}），${groupSucceeded ? '群体被你带偏，卧底获胜' : '群体没有被带偏，卧底失败'}。平民词是「${pair?.civilianWord || ''}」，卧底词是「${pair?.undercoverWord || ''}」。`
-            : `你是平民，词语是「${humanMeta?.word || ''}」。你投给了 ${humanTarget?.display_name || '未知'}（${humanTargetMeta?.role === 'undercover' ? '卧底' : '平民'}），${playerGuessCorrect ? '你的个人判断正确' : '你的个人判断错误'}。多数票投出 ${eliminated?.display_name || '未知'}（${eliminatedMeta?.role === 'undercover' ? '卧底' : '平民'}），${groupSucceeded ? '群体成功找出卧底' : `群体被带偏，真正的卧底是 ${undercover?.display_name || '未知'}`}。平民词是「${pair?.civilianWord || ''}」，卧底词是「${pair?.undercoverWord || ''}」。`;
+            ? `你是卧底，词语是「${humanMeta.word}」。你投给了 ${humanTarget?.display_name || '未知'}（${humanTargetMeta?.role === 'undercover' ? '卧底' : '平民'}），${playerGuessCorrect ? '这次甩锅方向是对的' : '这票没有成功甩到平民身上'}。多数票投出 ${eliminated?.display_name || '未知'}（${eliminatedMeta?.role === 'undercover' ? '卧底' : '平民'}），${groupSucceeded ? '群体被你带偏，卧底获胜' : '群体没有被带偏，卧底失败'}。${wordRevealText}`
+            : `你是平民，词语是「${humanMeta?.word || ''}」。你投给了 ${humanTarget?.display_name || '未知'}（${humanTargetMeta?.role === 'undercover' ? '卧底' : '平民'}），${playerGuessCorrect ? '你的个人判断正确' : '你的个人判断错误'}。多数票投出 ${eliminated?.display_name || '未知'}（${eliminatedMeta?.role === 'undercover' ? '卧底' : '平民'}），${groupSucceeded ? '群体成功找出卧底' : `群体被带偏，真正的卧底是 ${undercover?.display_name || '未知'}`}。${wordRevealText}`;
           const shareText = playerGuessCorrect
             ? `我在谁是卧底里个人判断猜中了${humanMeta?.role === 'undercover' ? '甩锅对象' : '卧底'}，平民词「${pair?.civilianWord || ''}」，卧底词「${pair?.undercoverWord || ''}」。`
             : `我在谁是卧底里个人判断猜错了，真正卧底是${undercover?.display_name || '未知'}。`;

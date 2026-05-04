@@ -143,6 +143,37 @@ const undercoverPairs = [
   ['森林', '草原'],
   ['月亮', '太阳'],
 ];
+
+const fallbackPairsByTier: Record<string, string[][]> = {
+  obvious: [
+    ['猫', '狗'],
+    ['火锅', '麻辣烫'],
+    ['手机', '平板'],
+    ['雨伞', '雨衣'],
+    ['键盘', '鼠标'],
+  ],
+  close: [
+    ['咖啡', '奶茶'],
+    ['电梯', '扶梯'],
+    ['酒店', '民宿'],
+    ['老板', '领导'],
+    ['耳机', '音箱'],
+  ],
+  contextual: [
+    ['简历', '名片'],
+    ['朋友圈', '微博'],
+    ['会议室', '办公室'],
+    ['合同', '发票'],
+    ['外卖', '快递'],
+  ],
+  abstract: [
+    ['自由', '独立'],
+    ['责任', '压力'],
+    ['安全感', '信任'],
+    ['体面', '尊严'],
+    ['热闹', '陪伴'],
+  ],
+};
 const undercoverAngles = [
   '外观或材质',
   '常见使用场景',
@@ -235,6 +266,170 @@ export function pickJuryCase(roomId: string) {
 export function pickUndercoverPair(roomId: string) {
   const seed = [...roomId].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
   return undercoverPairs[seed % undercoverPairs.length];
+}
+
+function normalizeWordTier(tier?: string | null) {
+  if (tier === 'obvious' || tier === 'close' || tier === 'contextual' || tier === 'abstract') return tier;
+  return 'close';
+}
+
+function pickFallbackPair(seed: string, tier?: string | null) {
+  const normalizedTier = normalizeWordTier(tier);
+  const pairs = fallbackPairsByTier[normalizedTier] || undercoverPairs;
+  const value = [...seed].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  return pairs[value % pairs.length] || pickUndercoverPair(seed);
+}
+
+function isSafeGeneratedWord(value: string) {
+  const word = value.trim();
+  if (!/^[\u4e00-\u9fa5]{2,4}$/.test(word)) return false;
+  if (/政治|成人|色情|暴力|疾病|癌|药|品牌|公司|青团|汤圆|月饼|粽子|元宵|腊八/.test(word)) return false;
+  return true;
+}
+
+function isSameWordVariant(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diffCount = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) diffCount++;
+    if (diffCount > 1) return false;
+  }
+  return diffCount === 1;
+}
+
+export async function getDynamicUndercoverPair(db: D1Database, env: any, options: {
+  roomId: string;
+  tier?: string | null;
+  seed?: string | null;
+}) {
+  const tier = normalizeWordTier(options.tier);
+  const seed = options.seed || options.roomId;
+
+  const usedMark = (row: any) => {
+    if (!row?.id) return Promise.resolve();
+    return db.prepare(
+      `UPDATE ai_game_word_pairs SET used_count = used_count + 1, last_used_at = CURRENT_TIMESTAMP WHERE id = ?`
+    ).bind(row.id).run();
+  };
+
+  const cached = await db.prepare(
+    `SELECT * FROM ai_game_word_pairs
+     WHERE tier = ? AND (last_used_at IS NULL OR last_used_at < datetime('now', '-30 minutes'))
+     ORDER BY used_count ASC, ABS(RANDOM()) % 1000
+     LIMIT 1`
+  ).bind(tier).first();
+
+  if (cached?.id && cached.civilian_word && cached.undercover_word) {
+    await usedMark(cached);
+    return [String(cached.civilian_word), String(cached.undercover_word)];
+  }
+
+  const generated = await generateAndCachePair(db, env, tier, seed);
+  if (generated) return generated;
+
+  const anyCached = await db.prepare(
+    `SELECT * FROM ai_game_word_pairs
+     WHERE tier = ?
+     ORDER BY last_used_at ASC, used_count ASC
+     LIMIT 1`
+  ).bind(tier).first();
+
+  if (anyCached?.id && anyCached.civilian_word && anyCached.undercover_word) {
+    await usedMark(anyCached);
+    return [String(anyCached.civilian_word), String(anyCached.undercover_word)];
+  }
+
+  return pickFallbackPair(seed, tier);
+}
+
+async function generateAndCachePair(db: D1Database, env: any, tier: string, seed: string): Promise<string[] | null> {
+  try {
+    const existing = await db.prepare(
+      `SELECT civilian_word, undercover_word FROM ai_game_word_pairs WHERE tier = ?`
+    ).bind(tier).all();
+    const existingSet = new Set((existing.results || []).map((r: any) => `${r.civilian_word}|${r.undercover_word}`));
+    const usedWords = new Set<string>();
+    for (const r of (existing.results || [])) {
+      usedWords.add(String(r.civilian_word));
+      usedWords.add(String(r.undercover_word));
+    }
+    const avoidList = [...usedWords].slice(0, 20).join('、');
+
+    const { config, apiKey } = getModel(env);
+    const openai = new OpenAI({ apiKey, baseURL: config.baseURL });
+    const avoidClause = avoidList
+      ? `\n6. 以下词语已经用过，必须避开：${avoidList}`
+      : '';
+    const tierGuide: Record<string, string> = {
+      obvious: '差异明显（如：猫/狗、火锅/麻辣烫、雨伞/雨衣）。两个词属于同一大类但一看就不同。',
+      close: '非常接近但能通过细节区分（如：咖啡/奶茶、电梯/扶梯、酒店/民宿）。描述时容易混淆。',
+      contextual: '在特定场景下才产生差异（如：外卖/快递、简历/名片、朋友圈/微博）。需要结合使用场景才能分辨。',
+      abstract: '抽象概念（如：自由/独立、热闹/陪伴、体面/尊严）。需要深层理解和举例才能区分。',
+    };
+    const tierHint = tierGuide[tier] || tierGuide.close;
+    const prompt = [
+      '你是"谁是卧底"游戏的出词专家。生成一组适合中国大众玩家的词对。',
+      '',
+      `【当前难度】${tier}：${tierHint}`,
+      '',
+      '【硬性要求】',
+      '1. 必须是2-4个汉字的日常高频词，中小学生都认识、都接触过。',
+      '2. 两个词必须属于同一大类，生活中经常一起出现。',
+      '3. 不能互相包含（如"手机/手机壳"），不能是同义词，不能是同一个词的简繁体变体（如"风筝/风箏"），不能一眼完全无关。',
+      '4. 禁止：品牌名、人名、网络梗、地方小吃、节日食品、方言词、生僻词、专业术语。',
+      '5. 好词对的标准：玩家一听就能聊，有生活细节可以描述，但又不至于一眼看穿。',
+      '',
+      '【好词对示范】',
+      '牛奶/豆浆、地铁/高铁、外卖/快递、红包/转账、密码/验证码、耳机/音箱、',
+      '早餐/夜宵、可乐/雪碧、篮球/足球、超市/便利店、图书馆/书店',
+      '',
+      '【反面教材（不要生成这类）】',
+      '青团/汤圆 ❌ 节日食品、太冷门',
+      '票据/凭证 ❌ 太书面、没人日常说',
+      'VR/AR ❌ 英文缩写、不直观',
+      '',
+    ].join('\n') + (avoidClause ? `【已用词语，必须避开】\n${avoidList}\n\n` : '')
+      + '只返回 JSON：{"civilianWord":"...","undercoverWord":"...","reason":"..."}';
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const completion = await openai.chat.completions.create({
+        model: config.model,
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: `seed: ${seed}-attempt${attempt}-${crypto.randomUUID().slice(0, 6)}` },
+        ],
+        temperature: Math.min(1, 0.75 + attempt * 0.15 + (tier === 'abstract' ? 0.15 : 0)),
+      });
+      const raw = completion.choices[0]?.message?.content || '';
+      const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
+      const civilianWord = String(parsed.civilianWord || '').trim();
+      const undercoverWord = String(parsed.undercoverWord || '').trim();
+      if (
+        isSafeGeneratedWord(civilianWord) &&
+        isSafeGeneratedWord(undercoverWord) &&
+        civilianWord !== undercoverWord &&
+        !civilianWord.includes(undercoverWord) &&
+        !undercoverWord.includes(civilianWord) &&
+        !isSameWordVariant(civilianWord, undercoverWord) &&
+        !usedWords.has(civilianWord) &&
+        !usedWords.has(undercoverWord)
+      ) {
+        const pairKey = `${civilianWord}|${undercoverWord}`;
+        if (!existingSet.has(pairKey)) {
+          const id = `pair-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+          await db.prepare(
+            `INSERT INTO ai_game_word_pairs
+             (id, tier, civilian_word, undercover_word, reason, source, used_count, created_at, last_used_at)
+             VALUES (?, ?, ?, ?, ?, 'generated', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+          ).bind(id, tier, civilianWord, undercoverWord, String(parsed.reason || '').slice(0, 160)).run();
+        }
+        return [civilianWord, undercoverWord];
+      }
+    }
+  } catch (error) {
+    console.warn('dynamic undercover pair fallback:', error);
+  }
+  return null;
 }
 
 function escapeRegExp(value: string) {

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, Check, Copy, Eye, MessageSquare, Play, Send, Share2, Users, Vote, AlertCircle, Trophy } from 'lucide-react';
+import { Bot, Check, Copy, Eye, Flag, Loader2, Lock, Play, Send, Share2, Star, Users, Vote, AlertCircle, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,13 +13,64 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { aiGameGlobalRules, aiGameModes } from '@/config/aiGame';
+import { aiGameGlobalRules, aiGameModes, generateCampaignLevel, getCampaignWindow } from '@/config/aiGame';
+import type { AiGameCampaignLevel } from '@/config/aiGame';
 import { request } from '@/utils/request';
 import { getAvatarData } from '@/utils/avatar';
-import { useIsMobile } from '@/hooks/use-mobile';
 import type { CurrentPlayerSecret, GameMessage, GamePlayer, GameResult, GameRoomData } from './types';
 
 const playerStorageKey = (roomId: string) => `ai-game-player:${roomId}`;
+const roomLevelStorageKey = (roomId: string) => `ai-game-room-level:${roomId}`;
+const campaignProgressKey = 'ai-game-campaign-progress';
+
+interface CampaignProgress {
+  highestUnlockedLevel: number;
+  bestStars: Record<string, number>;
+  clearedAt: Record<string, string>;
+}
+
+function normalizeCampaignProgress(raw: any): CampaignProgress {
+  if (raw && typeof raw.highestUnlockedLevel === 'number' && raw.bestStars && raw.clearedAt) {
+    return {
+      highestUnlockedLevel: Math.max(1, Math.floor(raw.highestUnlockedLevel || 1)),
+      bestStars: raw.bestStars || {},
+      clearedAt: raw.clearedAt || {},
+    };
+  }
+
+  const bestStars: Record<string, number> = {};
+  const clearedAt: Record<string, string> = {};
+  let highestCleared = 0;
+
+  if (raw && typeof raw === 'object') {
+    Object.entries(raw).forEach(([key, value]) => {
+      const levelNumber = Number(key.replace(/^u/, ''));
+      const item = value as { stars?: number; clearedAt?: string };
+      if (!Number.isFinite(levelNumber) || levelNumber < 1 || !item?.stars) return;
+      bestStars[String(levelNumber)] = Math.max(0, Math.min(3, Number(item.stars) || 0));
+      if (item.clearedAt) clearedAt[String(levelNumber)] = item.clearedAt;
+      highestCleared = Math.max(highestCleared, levelNumber);
+    });
+  }
+
+  return {
+    highestUnlockedLevel: Math.max(1, highestCleared + 1),
+    bestStars,
+    clearedAt,
+  };
+}
+
+function loadCampaignProgress(): CampaignProgress {
+  try {
+    return normalizeCampaignProgress(JSON.parse(localStorage.getItem(campaignProgressKey) || '{}'));
+  } catch {
+    return normalizeCampaignProgress(null);
+  }
+}
+
+function saveCampaignProgress(progress: CampaignProgress) {
+  localStorage.setItem(campaignProgressKey, JSON.stringify(progress));
+}
 
 function toUtcDate(date?: string | null) {
   if (!date) return null;
@@ -31,11 +82,11 @@ function formatPercent(value?: number | null) {
   return `${Math.round(Number(value) * 100)}%`;
 }
 
-function PlayerAvatar({ player, revealed }: { player: GamePlayer; revealed?: boolean }) {
+function PlayerAvatar({ player, revealed, compact = false }: { player: GamePlayer; revealed?: boolean; compact?: boolean }) {
   const avatar = getAvatarData(player.display_name);
   const label = revealed && player.secret_role === 'ai' ? 'AI' : player.display_name[0];
   return (
-    <Avatar className="w-9 h-9">
+    <Avatar className={compact ? 'h-7 w-7' : 'h-9 w-9'}>
       <AvatarFallback style={{ backgroundColor: avatar.backgroundColor, color: 'white' }}>
         {label}
       </AvatarFallback>
@@ -62,7 +113,7 @@ function RuleList({ items }: { items: string[] }) {
     <ul className="space-y-1.5 text-sm text-muted-foreground">
       {items.map((item) => (
         <li key={item} className="flex gap-2">
-          <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#ff6600]" />
+          <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#c2410c]" />
           <span>{item}</span>
         </li>
       ))}
@@ -88,16 +139,515 @@ function VoteRecord({ voterName, targetName }: { voterName: string; targetName: 
   );
 }
 
+interface GameControlPanelProps {
+  room: GameRoomData;
+  modeRules: (typeof aiGameModes)[number];
+  effectiveStatus: GameRoomData['status'];
+  players: GamePlayer[];
+  candidatePlayers: GamePlayer[];
+  activeCandidatePlayers: GamePlayer[];
+  currentPlayer?: GamePlayer;
+  currentPlayerSecret: CurrentPlayerSecret | null;
+  selectedVote: string;
+  setSelectedVote: (value: string) => void;
+  canGuess: boolean;
+  canReveal: boolean;
+  campaignTimedOut?: boolean;
+  busy: boolean;
+  revealed: boolean;
+  isObserver: boolean;
+  isJuryMode: boolean;
+  isUndercoverMode: boolean;
+  result: GameResult | null;
+  copied: boolean;
+  onStart: () => void;
+  onCopyShare: () => void;
+  onNewGame: () => void;
+  onReplay?: () => void;
+  onConfirm: (action: 'vote' | 'reveal') => void;
+  voteHint?: string;
+  compact?: boolean;
+}
+
+function GameControlPanel({
+  room,
+  modeRules,
+  effectiveStatus,
+  players,
+  candidatePlayers,
+  activeCandidatePlayers,
+  currentPlayer,
+  currentPlayerSecret,
+  selectedVote,
+  setSelectedVote,
+  canGuess,
+  canReveal,
+  campaignTimedOut,
+  busy,
+  revealed,
+  isObserver,
+  isJuryMode,
+  isUndercoverMode,
+  result,
+  copied,
+  onStart,
+  onCopyShare,
+  onNewGame,
+  onReplay,
+  onConfirm,
+  voteHint,
+  compact = false,
+}: GameControlPanelProps) {
+  const selectedPlayer = candidatePlayers.find(player => player.id === selectedVote);
+  const playerGridClass = compact
+    ? 'grid grid-cols-2 gap-2'
+    : 'grid grid-cols-2 gap-2';
+
+  return (
+    <div className={compact ? 'w-full max-w-full overflow-hidden rounded-lg border bg-card shadow-sm' : 'flex min-h-0 flex-col bg-card'}>
+      <div className="border-b p-2.5 md:p-4">
+        <div className="mb-2.5 flex items-center justify-between">
+          <div className="font-medium">{isUndercoverMode ? '玩家列表' : isJuryMode ? '法庭成员' : isObserver ? '候选玩家' : '玩家席位'}</div>
+          <div className="text-xs text-muted-foreground">{activeCandidatePlayers.length}/{room.max_players}</div>
+        </div>
+        <div className={playerGridClass}>
+          {candidatePlayers.map(player => {
+            const isOut = !!player.eliminated_at && !revealed;
+            const disabled = !canGuess || player.id === currentPlayer?.id || player.player_type === 'observer' || !!player.eliminated_at;
+            const playerStatus = (() => {
+              if (isOut) return <span className="font-medium text-red-500">已出局</span>;
+              if (isUndercoverMode && revealed) {
+                return (
+                  <>
+                    {parseUndercoverMeta(player.ai_persona)?.role === 'undercover' ? '卧底' : '平民'}
+                    {player.eliminated_at && <span className="text-red-500"> · 已出局</span>}
+                  </>
+                );
+              }
+              if (isJuryMode && !revealed) return player.id === currentPlayer?.id ? '被告' : '法庭角色';
+              if (revealed) return player.secret_role === 'ai' ? 'AI' : player.secret_role === 'observer' ? '观察者' : '真人';
+              return player.id === currentPlayer?.id ? '你' : '身份未知';
+            })();
+
+            return (
+              <button
+                key={player.id}
+                onClick={() => setSelectedVote(player.id)}
+                disabled={disabled}
+                className={`relative flex min-w-0 items-center gap-1.5 rounded-lg border p-2 text-left transition-colors ${selectedVote === player.id ? 'border-[#c2410c] bg-orange-50 dark:bg-orange-950/20' : 'hover:bg-accent'} ${player.id === currentPlayer?.id ? 'opacity-70' : ''}`}
+              >
+                <div className={`relative ${isOut ? 'opacity-50 grayscale' : ''}`}>
+                  <PlayerAvatar player={player} revealed={revealed} compact={compact} />
+                  {isOut && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="h-0.5 w-full rotate-45 rounded-full bg-red-500" />
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className={`truncate ${compact ? 'text-xs' : 'text-sm'} font-medium ${isOut ? 'line-through text-muted-foreground' : ''}`}>{player.display_name}</div>
+                  <div className="truncate text-xs text-muted-foreground">{playerStatus}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={`${compact ? '' : 'flex-1 overflow-y-auto'} p-2.5 md:p-4`}>
+        {isUndercoverMode && !revealed && room.status === 'playing' && !currentPlayerSecret?.word && (
+          <div className="mb-3 rounded-lg border border-[#c2410c]/30 bg-orange-50 p-3 dark:bg-orange-950/20 animate-pulse">
+            <div className="text-xs text-muted-foreground">正在分配词语…</div>
+            <div className="mt-1 text-lg font-semibold tracking-normal text-[#c2410c]/60">生成中</div>
+          </div>
+        )}
+        {isUndercoverMode && !revealed && currentPlayerSecret?.word && (
+          <div className="mb-3 rounded-lg border border-[#c2410c]/30 bg-orange-50 p-3 dark:bg-orange-950/20">
+            <div className="text-xs text-muted-foreground">你的词语</div>
+            <div className="mt-1 text-2xl font-semibold tracking-normal text-[#c2410c]">{currentPlayerSecret.word}</div>
+            <div className="mt-1 text-xs text-muted-foreground">描述时不能直接说出这个词。</div>
+          </div>
+        )}
+
+        {selectedPlayer && canGuess && !revealed && (
+          <div className="mb-3 rounded-lg border border-[#c2410c]/30 bg-orange-50 p-3 text-sm dark:bg-orange-950/20">
+            已选择：<span className="font-medium">{selectedPlayer.display_name}</span>
+          </div>
+        )}
+
+        {voteHint && !revealed && (
+          <div className="mb-3 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+            {voteHint}
+          </div>
+        )}
+
+        {campaignTimedOut && (
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+            本关已超时，挑战失败。身份不会揭晓，可以重玩本关。
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button variant="outline" size="sm" onClick={onNewGame}>
+                返回地图
+              </Button>
+              <Button size="sm" onClick={onReplay || onNewGame} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                重玩本关
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {room.status === 'waiting' && (
+          <div className="space-y-3">
+            {!compact && (
+              <div className="rounded-lg bg-muted p-3">
+                <div className="mb-2 text-sm font-medium">本局规则</div>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>{modeRules.setup}</p>
+                  <p>{modeRules.goal}</p>
+                  <p>{modeRules.winCondition}</p>
+                </div>
+              </div>
+            )}
+            {!compact && (
+              <div className="rounded-lg bg-muted p-3">
+                <div className="mb-2 text-sm font-medium">流程</div>
+                <RuleList items={modeRules.flow} />
+              </div>
+            )}
+            <Button onClick={onStart} disabled={busy || players.length === 0} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
+              {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在生成词组…</> : <><Play className="mr-2 h-4 w-4" />开始游戏</>}
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => navigator.clipboard.writeText(room.id).then(() => toast.success('房间 ID 已复制'))}
+            >
+              <Copy className="mr-2 h-4 w-4" />
+              复制房间 ID
+            </Button>
+          </div>
+        )}
+
+        {effectiveStatus === 'playing' && !campaignTimedOut && (
+          <div className="space-y-3">
+            {!compact && (
+              <div className="rounded-lg bg-muted p-3">
+                <div className="mb-2 text-sm font-medium">当前目标</div>
+                <div className="text-sm text-muted-foreground">{modeRules.goal}</div>
+                <div className="mb-2 mt-3 text-sm font-medium">判断线索</div>
+                <RuleList items={isUndercoverMode ? [
+                  '看谁的描述和大家不是同一个方向',
+                  '追问模糊发言的人，让他补一个细节',
+                  '卧底可以故意附和多数人，平民要找出这种顺风话',
+                  '每轮投出一人后不公布身份，剩下的人继续聊',
+                ] : [
+                  '是否能自然接住上下文',
+                  '是否有真实但不过度编造的细节',
+                  '是否总是回答得太完整、太礼貌',
+                  '是否会回避追问或突然转移话题',
+                ]} />
+              </div>
+            )}
+            {!isJuryMode && (
+               <Button variant="outline" onClick={() => onConfirm('vote')} disabled={!selectedVote || !currentPlayer || busy} className="w-full">
+                {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />投票中…</> : <><Vote className="mr-2 h-4 w-4" />{isUndercoverMode ? '提交投票' : '投给选中的玩家'}</>}
+              </Button>
+            )}
+            <Button onClick={() => onConfirm('reveal')} disabled={!canReveal || busy} className="w-full">
+              {isUndercoverMode ? '揭晓身份' : isJuryMode ? '请求宣判' : '直接揭晓'}
+            </Button>
+          </div>
+        )}
+
+        {effectiveStatus === 'voting' && !isJuryMode && !campaignTimedOut && (
+          <div className="space-y-3">
+            <Button onClick={() => onConfirm('vote')} disabled={!selectedVote || !currentPlayer || busy} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
+              {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />投票中…</> : '提交投票'}
+            </Button>
+            <Button variant="outline" onClick={() => onConfirm('reveal')} disabled={!canReveal || busy} className="w-full">
+              揭晓身份
+            </Button>
+          </div>
+        )}
+
+        {revealed && (
+          <div className="space-y-3">
+            <div className="rounded-lg border bg-card p-3">
+              <div className="mb-2 text-sm font-medium">身份揭晓</div>
+              <div className="space-y-2">
+                {candidatePlayers.map(player => {
+                  const avatar = getAvatarData(player.display_name);
+                  const isMe = player.id === currentPlayer?.id;
+                  const isUndercover = isUndercoverMode && parseUndercoverMeta(player.ai_persona)?.role === 'undercover';
+                  const isAi = !isUndercoverMode && player.secret_role === 'ai';
+                  const roleLabel = isUndercoverMode
+                    ? (isUndercover ? '卧底' : '平民')
+                    : (isAi ? 'AI' : '真人');
+                  const isHighlight = isUndercover || isAi;
+                  return (
+                    <div key={player.id} className="flex items-center gap-2">
+                      <Avatar className="h-7 w-7">
+                        <AvatarFallback style={{ backgroundColor: avatar.backgroundColor, color: 'white' }}>{player.display_name[0]}</AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1 truncate text-sm">{player.display_name}</div>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${isHighlight ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' : 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'}`}>
+                        {roleLabel}
+                      </span>
+                      {isMe && <span className="text-xs text-muted-foreground">(你)</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {!isJuryMode && !isUndercoverMode && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-muted p-3">
+                  <div className="text-xs text-muted-foreground">识别率</div>
+                  <div className="mt-1 text-lg font-semibold">{formatPercent(result?.human_accuracy)}</div>
+                </div>
+                <div className="rounded-lg bg-muted p-3">
+                  <div className="text-xs text-muted-foreground">AI 逃脱率</div>
+                  <div className="mt-1 text-lg font-semibold">{formatPercent(result?.ai_escape_rate)}</div>
+                </div>
+              </div>
+            )}
+            {isUndercoverMode && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-muted p-3">
+                  <div className="text-xs text-muted-foreground">你的判断</div>
+                  <div className="mt-1 text-lg font-semibold">{Number(result?.human_accuracy) === 1 ? '猜中' : '猜错'}</div>
+                </div>
+                <div className="rounded-lg bg-muted p-3">
+                  <div className="text-xs text-muted-foreground">你的身份</div>
+                  <div className="mt-1 text-lg font-semibold">{currentPlayerSecret?.role === 'undercover' ? '卧底' : '平民'}</div>
+                </div>
+              </div>
+            )}
+            <div className="rounded-lg bg-muted p-3 text-sm">
+              {result?.summary || (isJuryMode ? '本案已经宣判。' : '本局已经揭晓。')}
+            </div>
+            <Button onClick={onCopyShare} className="w-full">
+              {copied ? <Check className="mr-2 h-4 w-4" /> : <Share2 className="mr-2 h-4 w-4" />}
+              复制战绩
+            </Button>
+            <Button onClick={onNewGame} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
+              <Play className="mr-2 h-4 w-4" />
+              再来一局
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface MobileActionCardProps extends GameControlPanelProps {
+  voteOpen: boolean;
+  setVoteOpen: (open: boolean) => void;
+}
+
+function MobileActionCard({
+  room,
+  players,
+  candidatePlayers,
+  currentPlayer,
+  currentPlayerSecret,
+  selectedVote,
+  setSelectedVote,
+  canGuess,
+  canReveal,
+  campaignTimedOut,
+  busy,
+  revealed,
+  isJuryMode,
+  isUndercoverMode,
+  result,
+  copied,
+  effectiveStatus,
+  onStart,
+  onCopyShare,
+  onNewGame,
+  onReplay,
+  onConfirm,
+  voteHint,
+  voteOpen,
+  setVoteOpen,
+}: MobileActionCardProps) {
+  const selectedPlayer = candidatePlayers.find(player => player.id === selectedVote);
+  const showVotePicker = (voteOpen || effectiveStatus === 'voting') && canGuess && !revealed;
+
+  if (room.status === 'waiting') {
+    return (
+      <div className="rounded-lg border bg-card p-3 shadow-sm md:hidden">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">等待开局</div>
+            <div className="text-xs text-muted-foreground">已入座 {players.length}/{room.max_players}</div>
+          </div>
+          <Button size="sm" onClick={onStart} disabled={busy || players.length === 0} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+            <Play className="mr-1 h-3.5 w-3.5" />
+            开始
+          </Button>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-2 w-full"
+          onClick={() => navigator.clipboard.writeText(room.id).then(() => toast.success('房间 ID 已复制'))}
+        >
+          <Copy className="mr-1 h-3.5 w-3.5" />
+          复制房间 ID
+        </Button>
+      </div>
+    );
+  }
+
+  if (revealed) {
+    return (
+      <div className="rounded-lg border bg-card p-3 shadow-sm md:hidden">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-sm font-medium">{isJuryMode ? '已宣判' : '身份揭晓'}</div>
+          <Button size="sm" variant="outline" onClick={onCopyShare}>
+            {copied ? <Check className="mr-1 h-3.5 w-3.5" /> : <Share2 className="mr-1 h-3.5 w-3.5" />}
+            战绩
+          </Button>
+        </div>
+        <div className="max-h-[22dvh] overflow-y-auto">
+          <div className="grid grid-cols-2 gap-2">
+            {candidatePlayers.map(player => {
+              const isUndercover = isUndercoverMode && parseUndercoverMeta(player.ai_persona)?.role === 'undercover';
+              const isAi = !isUndercoverMode && player.secret_role === 'ai';
+              const roleLabel = isUndercoverMode ? (isUndercover ? '卧底' : '平民') : (isAi ? 'AI' : '真人');
+              return (
+                <div key={player.id} className="min-w-0 rounded-lg bg-muted px-2 py-1.5">
+                  <div className="truncate text-xs font-medium">{player.display_name}</div>
+                  <div className={`text-xs ${isUndercover || isAi ? 'text-red-500' : 'text-green-600'}`}>{roleLabel}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {result?.summary && <div className="mt-2 max-h-10 overflow-hidden text-xs text-muted-foreground">{result.summary}</div>}
+        <Button onClick={onNewGame} size="sm" className="mt-2 w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
+          <Play className="mr-1 h-3.5 w-3.5" />
+          再来一局
+        </Button>
+      </div>
+    );
+  }
+
+  if (campaignTimedOut) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-3 shadow-sm md:hidden dark:border-red-900/40 dark:bg-red-950/20">
+        <div className="text-sm font-medium text-red-700 dark:text-red-300">挑战失败</div>
+        <div className="mt-1 text-xs text-red-600 dark:text-red-300">本关已超时，身份不会揭晓。</div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Button variant="outline" size="sm" onClick={onNewGame}>
+            返回地图
+          </Button>
+          <Button size="sm" onClick={onReplay || onNewGame} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+            重玩本关
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (effectiveStatus !== 'playing' && effectiveStatus !== 'voting') {
+    return null;
+  }
+
+  if (!showVotePicker) {
+    return (
+      <div className="rounded-lg border bg-card p-2 shadow-sm md:hidden">
+        <div className="flex items-center gap-2">
+      {isUndercoverMode && !currentPlayerSecret?.word && room.status === 'playing' && (
+        <div className="mb-2 flex items-center justify-between rounded-lg bg-muted px-3 py-2 animate-pulse">
+          <span className="text-xs text-muted-foreground">正在分配词语…</span>
+          <span className="text-sm font-semibold text-[#c2410c]/60">生成中</span>
+        </div>
+      )}
+      {isUndercoverMode && currentPlayerSecret?.word && (
+            <div className="min-w-0 flex-1 rounded-lg border border-[#c2410c]/25 bg-orange-50 px-2.5 py-1.5 dark:bg-orange-950/20">
+              <div className="text-[11px] leading-4 text-muted-foreground">你的词语</div>
+              <div className="truncate text-sm font-semibold tracking-normal text-[#c2410c]">{currentPlayerSecret.word}</div>
+            </div>
+          )}
+          {!isJuryMode && (
+            <Button onClick={() => setVoteOpen(true)} disabled={!canGuess} variant="outline" size="sm" className="h-10 flex-none">
+              <Vote className="mr-1 h-3.5 w-3.5" />
+              投票
+            </Button>
+          )}
+          <Button onClick={() => onConfirm('reveal')} disabled={!canReveal || busy} variant="outline" size="sm" className="h-10 flex-none">
+            {isUndercoverMode ? '揭晓' : isJuryMode ? '请求宣判' : '揭晓'}
+          </Button>
+        </div>
+        {voteHint && <div className="mt-1.5 text-xs text-muted-foreground">{voteHint}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-3 shadow-sm md:hidden">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">选择怀疑对象</div>
+          <div className="truncate text-xs text-muted-foreground">
+            {selectedPlayer ? `当前选择：${selectedPlayer.display_name}` : '先选一个玩家再提交投票'}
+          </div>
+        </div>
+        <Button onClick={() => setVoteOpen(false)} variant="ghost" size="sm" className="h-8 flex-none px-2">
+          收起
+        </Button>
+      </div>
+
+      {isUndercoverMode && currentPlayerSecret?.word && (
+        <div className="mb-2 flex items-center justify-between rounded-lg bg-muted px-3 py-2">
+          <span className="text-xs text-muted-foreground">你的词语</span>
+          <span className="max-w-[60%] truncate text-sm font-semibold text-[#c2410c]">{currentPlayerSecret.word}</span>
+        </div>
+      )}
+
+      <div className="mb-2 max-h-[24dvh] overflow-y-auto pr-0.5">
+        <div className="grid grid-cols-2 gap-2">
+          {candidatePlayers.map(player => {
+            const disabled = player.id === currentPlayer?.id || player.player_type === 'observer' || !!player.eliminated_at;
+            return (
+              <button
+                key={player.id}
+                onClick={() => setSelectedVote(player.id)}
+                disabled={disabled}
+                className={`min-w-0 rounded-lg border px-2 py-2 text-left transition-colors ${selectedVote === player.id ? 'border-[#c2410c] bg-orange-50 dark:bg-orange-950/20' : 'bg-background'} ${disabled ? 'opacity-50' : 'active:bg-accent'}`}
+              >
+                <div className="truncate text-xs font-medium">{player.display_name}</div>
+                <div className="text-xs text-muted-foreground">{player.id === currentPlayer?.id ? '你' : player.eliminated_at ? '已出局' : '可投票'}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <Button onClick={() => onConfirm('vote')} disabled={!selectedVote || !currentPlayer || busy} size="sm" className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
+        {busy ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />投票中…</> : <><Vote className="mr-1 h-3.5 w-3.5" />提交投票</>}
+      </Button>
+    </div>
+  );
+}
+
 function AiGameHome() {
   const navigate = useNavigate();
   const [mode, setMode] = useState(aiGameModes[0].id);
   const [name, setName] = useState(localStorage.getItem('ai-game-name') || '');
   const [roomId, setRoomId] = useState('');
   const [creating, setCreating] = useState(false);
+  const [campaignProgress] = useState<CampaignProgress>(() => loadCampaignProgress());
 
   const [joining, setJoining] = useState(false);
 
   const selectedMode = aiGameModes.find(item => item.id === mode) || aiGameModes[0];
+  const visibleCampaignLevels = useMemo(() => getCampaignWindow(campaignProgress.highestUnlockedLevel), [campaignProgress.highestUnlockedLevel]);
+  const clearedLevels = useMemo(() => Object.values(campaignProgress.bestStars).filter(stars => stars > 0).length, [campaignProgress.bestStars]);
 
   const createRoom = async () => {
     setCreating(true);
@@ -163,6 +713,40 @@ function AiGameHome() {
     }
   };
 
+  const createCampaignRoom = async (level: AiGameCampaignLevel) => {
+    setCreating(true);
+    try {
+      const roomRes = await request('/api/ai-game/rooms', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: 'undercover',
+          title: `卧底晋级赛 · ${level.title}`,
+          maxPlayers: level.maxPlayers,
+          aiCount: level.aiCount,
+          durationSeconds: level.durationSeconds,
+          wordTier: level.wordTier,
+        }),
+      });
+      const roomData = await roomRes.json();
+      const newRoomId = roomData.data.roomId;
+      const joinRes = await request('/api/ai-game/join', {
+        method: 'POST',
+        body: JSON.stringify({ roomId: newRoomId, displayName: name || '玩家1' }),
+      });
+      const joinData = await joinRes.json();
+      localStorage.setItem(playerStorageKey(newRoomId), joinData.data.playerId);
+      localStorage.setItem(roomLevelStorageKey(newRoomId), String(level.levelNumber));
+      localStorage.setItem('ai-game-name', name || '玩家1');
+      navigate(`/ai-game/${newRoomId}`);
+    } catch (error: any) {
+      toast.error(error.message || '关卡创建失败');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const isLevelUnlocked = (level: AiGameCampaignLevel) => level.levelNumber <= campaignProgress.highestUnlockedLevel;
+
   return (
     <div className="fixed inset-0 overflow-y-auto bg-background">
       <div className="mx-auto flex min-h-full max-w-5xl flex-col px-4 py-6 md:py-10">
@@ -174,12 +758,63 @@ function AiGameHome() {
           </div>
         </div>
 
+        <section className="mb-6 rounded-lg border bg-card p-4 shadow-sm md:p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Flag className="h-4 w-4 text-[#c2410c]" />
+                <h1 className="text-lg font-semibold tracking-normal">卧底晋级赛</h1>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">逐关挑战谁是卧底，从明显破绽到高压反杀。</p>
+            </div>
+            <div className="hidden rounded-lg bg-muted px-3 py-2 text-right text-xs text-muted-foreground md:block">
+              <div className="font-medium text-foreground">本地进度</div>
+              <div>最高第 {campaignProgress.highestUnlockedLevel} 关 · 已通关 {clearedLevels} 关</div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {visibleCampaignLevels.map((level) => {
+              const stars = campaignProgress.bestStars[String(level.levelNumber)] || 0;
+              const unlocked = isLevelUnlocked(level);
+              return (
+                <button
+                  key={level.id}
+                  onClick={() => unlocked && createCampaignRoom(level)}
+                  disabled={!unlocked || creating}
+                  className={`min-w-0 rounded-lg border p-3 text-left transition-colors ${unlocked ? 'bg-background hover:bg-accent' : 'cursor-not-allowed bg-muted/60 opacity-70'} ${stars ? 'border-[#c2410c]/50' : ''}`}
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium text-muted-foreground">{level.chapter}</div>
+                    {unlocked ? (
+                      <div className="flex text-[#c2410c]">
+                        {Array.from({ length: 3 }).map((_, starIndex) => (
+                          <Star key={starIndex} className={`h-3.5 w-3.5 ${starIndex < stars ? 'fill-current' : 'opacity-30'}`} />
+                        ))}
+                      </div>
+                    ) : (
+                      <Lock className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="truncate text-sm font-semibold">{level.levelNumber}. {level.title}</div>
+                  <p className="mt-1 line-clamp-2 min-h-10 text-xs text-muted-foreground">{level.description}</p>
+                  <div className="mt-3 flex items-center justify-between text-xs">
+                    <span className="rounded-md bg-muted px-2 py-1">难度 {level.difficulty}</span>
+                    <span className="text-muted-foreground">{level.maxPlayers} 人 · {Math.round(level.durationSeconds / 60)} 分钟</span>
+                  </div>
+                  <div className="mt-2 truncate text-xs text-[#c2410c]">{level.modifier}</div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
         <div className="grid gap-6 md:grid-cols-[1.1fr_0.9fr]">
           <section className="rounded-lg border bg-card p-5 shadow-sm">
             <div className="mb-5">
-              <h1 className="text-2xl font-semibold tracking-normal">谁是 AI？</h1>
+              <h1 className="text-2xl font-semibold tracking-normal">自由练习</h1>
               <p className="mt-2 text-sm text-muted-foreground">
-                和一群“玩家”聊天，里面混着 AI。聊完投票，看看你能不能识破它们。
+                不计入闯关进度，直接开一局当前玩法练手。
               </p>
             </div>
 
@@ -188,7 +823,7 @@ function AiGameHome() {
                 <button
                   key={item.id}
                   onClick={() => setMode(item.id)}
-                  className={`rounded-lg border p-4 text-left transition-colors ${mode === item.id ? 'border-[#ff6600] bg-orange-50 dark:bg-orange-950/20' : 'bg-background hover:bg-accent'}`}
+                  className={`rounded-lg border p-4 text-left transition-colors ${mode === item.id ? 'border-[#c2410c] bg-orange-50 dark:bg-orange-950/20' : 'bg-background hover:bg-accent'}`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-medium">{item.name}</div>
@@ -208,7 +843,7 @@ function AiGameHome() {
 
           <section className="rounded-lg border bg-card p-5 shadow-sm">
             <div className="mb-4 flex items-center gap-2">
-              <Play className="h-4 w-4 text-[#ff6600]" />
+              <Play className="h-4 w-4 text-[#c2410c]" />
               <h2 className="font-medium">快速开局</h2>
             </div>
             <div className="space-y-3">
@@ -218,7 +853,7 @@ function AiGameHome() {
                 maxLength={16}
                 placeholder="你的昵称"
               />
-              <Button onClick={createRoom} disabled={creating} className="w-full bg-[#ff6600] text-white hover:bg-[#e65c00]">
+              <Button onClick={createRoom} disabled={creating} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
                 {creating ? '创建中...' : '创建并加入'}
               </Button>
             </div>
@@ -226,7 +861,7 @@ function AiGameHome() {
             <div className="my-5 border-t" />
 
             <div className="mb-4 flex items-center gap-2">
-              <Users className="h-4 w-4 text-[#ff6600]" />
+              <Users className="h-4 w-4 text-[#c2410c]" />
               <h2 className="font-medium">加入已有房间</h2>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -256,18 +891,29 @@ function AiGameRoom() {
   const [name, setName] = useState(localStorage.getItem('ai-game-name') || '');
   const [input, setInput] = useState('');
   const [playerId, setPlayerId] = useState(() => localStorage.getItem(playerStorageKey(roomId)) || '');
+  const [campaignLevelId, setCampaignLevelId] = useState(() => localStorage.getItem(roomLevelStorageKey(roomId)) || '');
   const [selectedVote, setSelectedVote] = useState('');
+  const [mobileVoteOpen, setMobileVoteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [votingPending, setVotingPending] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<'chat' | 'info'>('chat');
-  const [unreadCount, setUnreadCount] = useState(0);
   const [confirmAction, setConfirmAction] = useState<'vote' | 'reveal' | null>(null);
   const lastMessageIdRef = useRef(0);
-  const lastSeenMessageCountRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const isMobile = useIsMobile();
 
   const currentPlayer = useMemo(() => players.find(player => player.id === playerId), [players, playerId]);
+  const latestUndercoverVoteResultId = useMemo(() => {
+    const voteResults = messages.filter(message => message.sender_type === 'system' && message.content.startsWith('投票完成'));
+    return voteResults.length ? voteResults[voteResults.length - 1].id : 0;
+  }, [messages]);
+  const latestOwnDescriptionId = useMemo(() => {
+    const ownMessages = messages.filter(message => message.player_id === playerId && message.sender_type === 'human');
+    return ownMessages.length ? ownMessages[ownMessages.length - 1].id : 0;
+  }, [messages, playerId]);
+  const campaignLevel = useMemo(() => {
+    const levelNumber = Number(campaignLevelId.replace(/^u/, ''));
+    return Number.isFinite(levelNumber) && levelNumber > 0 ? generateCampaignLevel(levelNumber) : null;
+  }, [campaignLevelId]);
   const candidatePlayers = useMemo(() => players.filter(player => player.player_type !== 'observer'), [players]);
   const activeCandidatePlayers = useMemo(() => candidatePlayers.filter(player => !player.eliminated_at), [candidatePlayers]);
   const revealed = room?.status === 'revealed' || room?.status === 'archived';
@@ -276,6 +922,20 @@ function AiGameRoom() {
   const [now, setNow] = useState(Date.now());
   const secondsLeft = endsAt ? Math.max(0, Math.ceil((endsAt.getTime() - now) / 1000)) : room?.duration_seconds || 0;
   const effectiveStatus = room?.status === 'playing' && secondsLeft <= 0 && room.mode !== 'jury' && room.mode !== 'undercover' ? 'voting' : room?.status;
+
+  useEffect(() => {
+    setPlayerId(localStorage.getItem(playerStorageKey(roomId)) || '');
+    setCampaignLevelId(localStorage.getItem(roomLevelStorageKey(roomId)) || '');
+    setSelectedVote('');
+    setMobileVoteOpen(false);
+    setInput('');
+    setRoom(null);
+    setPlayers([]);
+    setResult(null);
+    setCurrentPlayerSecret(null);
+    lastMessageIdRef.current = 0;
+    setMessages([]);
+  }, [roomId]);
 
   const loadRoom = useCallback(async () => {
     if (!roomId) return;
@@ -325,30 +985,24 @@ function AiGameRoom() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Reset unread when switching to chat panel
   useEffect(() => {
-    if (mobilePanel === 'chat') {
-      setUnreadCount(0);
-      lastSeenMessageCountRef.current = messages.length;
+    if (effectiveStatus === 'voting') {
+      setMobileVoteOpen(true);
     }
-  }, [mobilePanel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [effectiveStatus]);
 
-  // Track new messages while on info panel (mobile)
   useEffect(() => {
-    if (isMobile && mobilePanel === 'info' && messages.length > lastSeenMessageCountRef.current) {
-      setUnreadCount(messages.length - lastSeenMessageCountRef.current);
-    }
-    if (mobilePanel === 'chat') {
-      lastSeenMessageCountRef.current = messages.length;
-    }
-  }, [messages.length, mobilePanel, isMobile]);
-
-  // Auto-switch to chat panel when voting starts on mobile
-  useEffect(() => {
-    if (isMobile && effectiveStatus === 'voting' && mobilePanel !== 'chat') {
-      setMobilePanel('chat');
-    }
-  }, [effectiveStatus, isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!campaignLevel || !result || (room?.status !== 'revealed' && room?.status !== 'archived')) return;
+    const stars = Number(result.human_accuracy) === 1 ? 3 : 0;
+    if (stars <= 0) return;
+    const progress = loadCampaignProgress();
+    const levelKey = String(campaignLevel.levelNumber);
+    if ((progress.bestStars[levelKey] || 0) >= stars && progress.highestUnlockedLevel >= campaignLevel.levelNumber + 1) return;
+    progress.bestStars[levelKey] = Math.max(progress.bestStars[levelKey] || 0, stars);
+    progress.clearedAt[levelKey] = new Date().toISOString();
+    progress.highestUnlockedLevel = Math.max(progress.highestUnlockedLevel, campaignLevel.levelNumber + 1);
+    saveCampaignProgress(progress);
+  }, [campaignLevel, result, room?.status]);
 
   const join = async () => {
     if (!roomId) return;
@@ -384,7 +1038,7 @@ function AiGameRoom() {
   };
 
   const send = async () => {
-    if (!input.trim() || !currentPlayer || effectiveStatus !== 'playing') return;
+    if (!input.trim() || !currentPlayer || currentStatus !== 'playing') return;
     const content = input;
     setInput('');
     try {
@@ -405,6 +1059,7 @@ function AiGameRoom() {
   const vote = async () => {
     if (!selectedVote || !currentPlayer) return;
     setBusy(true);
+    setVotingPending(true);
     try {
       await request('/api/ai-game/vote', {
         method: 'POST',
@@ -412,16 +1067,22 @@ function AiGameRoom() {
       });
       toast.success('投票已提交');
       setSelectedVote('');
+      setMobileVoteOpen(false);
       await loadRoom();
       await loadMessages();
     } catch (error: any) {
       toast.error(error.message || '投票失败');
     } finally {
+      setVotingPending(false);
       setBusy(false);
     }
   };
 
   const reveal = async () => {
+    if (campaignLevel) {
+      toast.error('闯关模式不能直接揭晓身份');
+      return;
+    }
     setBusy(true);
     try {
       await request('/api/ai-game/reveal', { method: 'POST', body: JSON.stringify({ roomId }) });
@@ -440,31 +1101,99 @@ function AiGameRoom() {
     setTimeout(() => setCopied(false), 1800);
   };
 
+  const createCampaignRoomFromLevel = async (level: AiGameCampaignLevel) => {
+    setBusy(true);
+    try {
+      const roomRes = await request('/api/ai-game/rooms', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: 'undercover',
+          title: `卧底晋级赛 · ${level.title}`,
+          maxPlayers: level.maxPlayers,
+          aiCount: level.aiCount,
+          durationSeconds: level.durationSeconds,
+          wordTier: level.wordTier,
+        }),
+      });
+      const roomData = await roomRes.json();
+      const newRoomId = roomData.data.roomId;
+      const joinRes = await request('/api/ai-game/join', {
+        method: 'POST',
+        body: JSON.stringify({ roomId: newRoomId, displayName: name || '玩家1' }),
+      });
+      const joinData = await joinRes.json();
+      localStorage.setItem(playerStorageKey(newRoomId), joinData.data.playerId);
+      localStorage.setItem(roomLevelStorageKey(newRoomId), String(level.levelNumber));
+      localStorage.setItem('ai-game-name', name || '玩家1');
+      navigate(`/ai-game/${newRoomId}`);
+    } catch (error: any) {
+      toast.error(error.message || '关卡创建失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!room) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#ff6600] border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#c2410c] border-t-transparent" />
       </div>
     );
   }
 
   const modeRules = aiGameModes.find(item => item.id === room.mode) || aiGameModes[0];
+  const currentStatus = effectiveStatus || room.status;
   const isObserver = currentPlayer?.player_type === 'observer';
   const isJuryMode = room.mode === 'jury';
   const isUndercoverMode = room.mode === 'undercover';
   const currentPlayerEliminated = !!currentPlayer?.eliminated_at;
-  const canVote = currentPlayer && !currentPlayerEliminated && (effectiveStatus === 'playing' || effectiveStatus === 'voting') && !revealed;
-  const canSpeak = !!currentPlayer && !currentPlayerEliminated && effectiveStatus === 'playing';
+  const campaignTimedOut = !!campaignLevel && !revealed && room.status === 'playing' && secondsLeft <= 0;
+  const needsNewDescriptionBeforeVote = isUndercoverMode && latestUndercoverVoteResultId > 0 && latestOwnDescriptionId < latestUndercoverVoteResultId;
+  const canVote = !!currentPlayer && !currentPlayerEliminated && (currentStatus === 'playing' || currentStatus === 'voting') && !revealed && !needsNewDescriptionBeforeVote && !campaignTimedOut;
+  const canSpeak = !!currentPlayer && !currentPlayerEliminated && currentStatus === 'playing' && !campaignTimedOut;
+  const canReveal = !campaignLevel && !campaignTimedOut;
   const canGuess = canVote && !isJuryMode;
+  const voteHint = needsNewDescriptionBeforeVote ? '上一轮已完成投票，请先继续描述后再投下一轮。' : undefined;
   const statusText = (() => {
+    if (campaignTimedOut) return '挑战失败';
     if (revealed) return isJuryMode ? '已宣判' : '已揭晓';
-    if (effectiveStatus === 'waiting') return '等待开局';
-    if (isJuryMode && effectiveStatus === 'playing') return secondsLeft > 0 ? `庭审剩余 ${secondsLeft}s` : '可请求宣判';
-    if (isUndercoverMode && effectiveStatus === 'playing') return '进行中';
-    if (effectiveStatus === 'playing') return `剩余 ${secondsLeft}s`;
-    if (effectiveStatus === 'voting') return '投票中';
+    if (currentStatus === 'waiting') return '等待开局';
+    if (isJuryMode && currentStatus === 'playing') return secondsLeft > 0 ? `庭审剩余 ${secondsLeft}s` : '可请求宣判';
+    if (isUndercoverMode && currentStatus === 'playing') return '进行中';
+    if (currentStatus === 'playing') return `剩余 ${secondsLeft}s`;
+    if (currentStatus === 'voting') return '投票中';
     return '进行中';
   })();
+  const controlPanelProps = {
+    room,
+    modeRules,
+    effectiveStatus: currentStatus,
+    players,
+    candidatePlayers,
+    activeCandidatePlayers,
+    currentPlayer,
+    currentPlayerSecret,
+    selectedVote,
+    setSelectedVote,
+    canGuess,
+    canReveal,
+    campaignTimedOut,
+    busy,
+    revealed,
+    isObserver,
+    isJuryMode,
+    isUndercoverMode,
+    result,
+    copied,
+    onStart: start,
+    onCopyShare: copyShare,
+    onNewGame: () => navigate('/ai-game'),
+    onReplay: campaignLevel ? () => createCampaignRoomFromLevel(campaignLevel) : undefined,
+    onConfirm: (action: 'vote' | 'reveal') => setConfirmAction(action),
+    voteHint,
+  };
+  const nextCampaignLevel = campaignLevel ? generateCampaignLevel(campaignLevel.levelNumber + 1) : undefined;
+  const campaignStars = campaignLevel && result && revealed && Number(result.human_accuracy) === 1 ? 3 : 0;
 
   return (
     <div className="fixed inset-0 bg-background">
@@ -473,7 +1202,7 @@ function AiGameRoom() {
           <div className="flex min-w-0 items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => navigate('/ai-game')}>返回</Button>
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{room.title}</div>
+              <div className="truncate text-sm font-medium">{room.title.replace(/\s*\[tier:[^\]]+\]/, '')}</div>
               <div className="text-xs text-muted-foreground">
                 {statusText}
               </div>
@@ -502,9 +1231,9 @@ function AiGameRoom() {
         )}
 
         <main className="grid flex-1 overflow-hidden md:grid-cols-[1fr_320px]">
-          <section className={`flex min-h-0 flex-col bg-muted ${isMobile && mobilePanel === 'info' ? 'hidden' : ''}`}>
-            <div className="flex-1 overflow-y-auto px-3 py-3">
-              <div className="mx-auto max-w-3xl space-y-3">
+          <section className="flex min-w-0 min-h-0 flex-col bg-muted">
+            <div className="min-w-0 flex-1 overflow-y-auto px-2 py-2 md:px-3 md:py-3">
+              <div className="mx-auto max-w-3xl min-w-0 space-y-3">
                 {messages.length === 0 && (
                   <div className="flex h-56 flex-col items-center justify-center text-center text-muted-foreground">
                     <Eye className="mb-3 h-8 w-8" />
@@ -531,8 +1260,8 @@ function AiGameRoom() {
                       const resultLines = resultPart.split('。').map((s: string) => s.trim()).filter(Boolean);
                       return (
                         <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                          <div className="mx-auto max-w-sm rounded-xl border-2 border-[#ff6600]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#ff6600]/30">
-                            <Trophy className="mx-auto mb-2 h-6 w-6 text-[#ff6600]" />
+                          <div className="mx-auto max-w-sm rounded-xl border-2 border-[#c2410c]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#c2410c]/30">
+                            <Trophy className="mx-auto mb-2 h-6 w-6 text-[#c2410c]" />
                             <div className="text-center text-sm font-semibold text-foreground">游戏结束</div>
                             {votePairs.length > 0 && (
                               <div className="mt-3 space-y-1.5 rounded-lg bg-white/60 p-2 dark:bg-black/20">
@@ -601,9 +1330,9 @@ function AiGameRoom() {
                     if (isGameStart) {
                       return (
                         <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                          <div className="mx-auto max-w-sm rounded-lg border border-[#ff6600]/30 bg-orange-50/60 px-4 py-2.5 text-center dark:bg-orange-950/20">
-                            <Play className="mx-auto mb-1 h-3.5 w-3.5 text-[#ff6600]" />
-                            <div className="text-xs font-medium text-[#ff6600]">{message.content}</div>
+                          <div className="mx-auto max-w-sm rounded-lg border border-[#c2410c]/30 bg-orange-50/60 px-4 py-2.5 text-center dark:bg-orange-950/20">
+                            <Play className="mx-auto mb-1 h-3.5 w-3.5 text-[#c2410c]" />
+                            <div className="text-xs font-medium text-[#c2410c]">{message.content}</div>
                           </div>
                         </div>
                       );
@@ -626,7 +1355,7 @@ function AiGameRoom() {
                       )}
                       <div className={`max-w-[78%] ${mine ? 'text-right' : ''}`}>
                         <div className="text-xs text-muted-foreground">{message.sender_name}</div>
-                        <div className={`mt-1 rounded-lg px-3 py-2 text-sm shadow-sm ${mine ? 'bg-blue-500 text-left text-white' : 'bg-card'}`}>
+                        <div className={`mt-1 rounded-lg px-3 py-2 text-sm shadow-sm ${mine ? 'bg-blue-600 text-left text-white' : 'bg-card'}`}>
                           {message.content}
                         </div>
                       </div>
@@ -638,17 +1367,60 @@ function AiGameRoom() {
                     </div>
                   );
                 })}
+                {campaignLevel && revealed && result && (
+                  <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                    <div className="mx-auto max-w-sm rounded-lg border bg-card p-3 shadow-sm">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold">晋级赛结算</div>
+                          <div className="truncate text-xs text-muted-foreground">{campaignLevel.title}</div>
+                        </div>
+                        <div className="flex text-[#c2410c]">
+                          {Array.from({ length: 3 }).map((_, index) => (
+                            <Star key={index} className={`h-4 w-4 ${index < campaignStars ? 'fill-current' : 'opacity-25'}`} />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-muted px-3 py-2 text-sm">
+                        {campaignStars > 0 ? '通关成功，下一关已解锁。' : '这关还没通关，重玩一次调整发言和投票策略。'}
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <Button variant="outline" size="sm" onClick={() => createCampaignRoomFromLevel(campaignLevel)} disabled={busy}>
+                          重玩
+                        </Button>
+                        {campaignStars > 0 && nextCampaignLevel ? (
+                          <Button size="sm" onClick={() => createCampaignRoomFromLevel(nextCampaignLevel)} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                            下一关
+                          </Button>
+                        ) : (
+                          <Button size="sm" onClick={() => navigate('/ai-game')} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                            返回地图
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {votingPending && (
+                  <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    AI 正在投票，等待结果…
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </div>
             </div>
 
-            <div className="border-t bg-card p-2 pb-2 md:pb-2" style={{ paddingBottom: isMobile ? 'calc(0.5rem + 3.5rem + env(safe-area-inset-bottom, 0px))' : undefined }}>
+            <div className="flex-none border-t bg-card p-2" style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}>
+              <div className="mx-auto mb-2 max-w-3xl">
+                <MobileActionCard {...controlPanelProps} voteOpen={mobileVoteOpen} setVoteOpen={setMobileVoteOpen} />
+              </div>
               {!currentPlayer && room.status === 'waiting' ? (
                 <div className="mx-auto flex max-w-3xl gap-2">
                   <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={16} placeholder="你的昵称" />
                   <Button onClick={join} disabled={busy}>加入</Button>
                 </div>
-              ) : effectiveStatus === 'playing' ? (
+              ) : currentStatus === 'playing' ? (
                 <div className="mx-auto flex max-w-3xl gap-2">
                   <Input
                     value={input}
@@ -668,232 +1440,10 @@ function AiGameRoom() {
             </div>
           </section>
 
-          <aside className={`flex min-h-0 flex-col border-l bg-card ${isMobile && mobilePanel === 'chat' ? 'hidden' : ''}`}>
-            <div className="border-b p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="font-medium">{isUndercoverMode ? '玩家列表' : isJuryMode ? '法庭成员' : isObserver ? '候选玩家' : '玩家席位'}</div>
-                <div className="text-xs text-muted-foreground">{activeCandidatePlayers.length}/{room.max_players}</div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {candidatePlayers.map(player => {
-                  const isOut = !!player.eliminated_at && !revealed;
-                  return (
-                    <button
-                      key={player.id}
-                      onClick={() => setSelectedVote(player.id)}
-                      disabled={!canGuess || player.id === currentPlayer?.id || player.player_type === 'observer' || !!player.eliminated_at}
-                      className={`relative flex items-center gap-2 rounded-lg border p-2 text-left transition-colors ${selectedVote === player.id ? 'border-[#ff6600] bg-orange-50 dark:bg-orange-950/20' : 'hover:bg-accent'} ${player.id === currentPlayer?.id ? 'opacity-70' : ''}`}
-                    >
-                      <div className={`relative ${isOut ? 'opacity-50 grayscale' : ''}`}>
-                        <PlayerAvatar player={player} revealed={revealed} />
-                        {isOut && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="h-0.5 w-full rotate-45 bg-red-500 rounded-full" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className={`truncate text-sm font-medium ${isOut ? 'line-through text-muted-foreground' : ''}`}>{player.display_name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {isOut
-                            ? <span className="font-medium text-red-500">已出局</span>
-                            : isUndercoverMode && revealed
-                              ? `${parseUndercoverMeta(player.ai_persona)?.role === 'undercover' ? '卧底' : '平民'}${player.eliminated_at ? ' · ' : ''}{player.eliminated_at && <span className="text-red-500">已出局</span>}`
-                              : isJuryMode && !revealed ? (player.id === currentPlayer?.id ? '被告' : '法庭角色') : revealed ? (player.secret_role === 'ai' ? 'AI' : player.secret_role === 'observer' ? '观察者' : '真人') : player.id === currentPlayer?.id ? '你' : '身份未知'}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4">
-              {isUndercoverMode && !revealed && currentPlayerSecret?.word && (
-                <div className="mb-3 rounded-lg border border-[#ff6600]/30 bg-orange-50 p-3 dark:bg-orange-950/20">
-                  <div className="text-xs text-muted-foreground">你的词语</div>
-                  <div className="mt-1 text-2xl font-semibold tracking-normal text-[#ff6600]">{currentPlayerSecret.word}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">描述时不能直接说出这个词。</div>
-                </div>
-              )}
-              {room.status === 'waiting' && (
-                <div className="space-y-3">
-                  <div className="rounded-lg bg-muted p-3">
-                    <div className="mb-2 text-sm font-medium">本局规则</div>
-                    <div className="space-y-2 text-sm text-muted-foreground">
-                      <p>{modeRules.setup}</p>
-                      <p>{modeRules.goal}</p>
-                      <p>{modeRules.winCondition}</p>
-                    </div>
-                  </div>
-                  <div className="rounded-lg bg-muted p-3">
-                    <div className="mb-2 text-sm font-medium">流程</div>
-                    <RuleList items={modeRules.flow} />
-                  </div>
-                  <Button onClick={start} disabled={busy || players.length === 0} className="w-full bg-[#ff6600] text-white hover:bg-[#e65c00]">
-                    <Play className="mr-2 h-4 w-4" />
-                    开始游戏
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => navigator.clipboard.writeText(room.id).then(() => toast.success('房间 ID 已复制'))}
-                  >
-                    <Copy className="mr-2 h-4 w-4" />
-                    复制房间 ID
-                  </Button>
-                </div>
-              )}
-
-              {effectiveStatus === 'playing' && (
-                <div className="space-y-3">
-                  <div className="rounded-lg bg-muted p-3">
-                    <div className="mb-2 text-sm font-medium">当前目标</div>
-                    <div className="text-sm text-muted-foreground">{modeRules.goal}</div>
-                    <div className="mt-3 mb-2 text-sm font-medium">判断线索</div>
-                    <RuleList items={isUndercoverMode ? [
-                      '看谁的描述和大家不是同一个方向',
-                      '追问模糊发言的人，让他补一个细节',
-                      '卧底可以故意附和多数人，平民要找出这种顺风话',
-                      '每轮投出一人后不公布身份，剩下的人继续聊',
-                    ] : [
-                      '是否能自然接住上下文',
-                      '是否有真实但不过度编造的细节',
-                      '是否总是回答得太完整、太礼貌',
-                      '是否会回避追问或突然转移话题',
-                    ]} />
-                  </div>
-                  {!isJuryMode && (
-                  <Button variant="outline" onClick={() => setConfirmAction('vote')} disabled={!selectedVote || !currentPlayer || busy} className="w-full">
-                    <Vote className="mr-2 h-4 w-4" />
-                    {isUndercoverMode ? '提交投票' : '投给选中的玩家'}
-                  </Button>
-                  )}
-                  <Button onClick={() => setConfirmAction('reveal')} disabled={busy} className="w-full">
-                    {isUndercoverMode ? '揭晓身份' : isJuryMode ? '请求宣判' : '直接揭晓'}
-                  </Button>
-                </div>
-              )}
-
-              {effectiveStatus === 'voting' && !isJuryMode && (
-                <div className="space-y-3">
-                  <Button onClick={() => setConfirmAction('vote')} disabled={!selectedVote || !currentPlayer || busy} className="w-full bg-[#ff6600] text-white hover:bg-[#e65c00]">
-                    提交投票
-                  </Button>
-                  <Button variant="outline" onClick={() => setConfirmAction('reveal')} disabled={busy} className="w-full">
-                    揭晓身份
-                  </Button>
-                </div>
-              )}
-
-              {revealed && (
-                <div className="space-y-3">
-                  <div className="rounded-lg border bg-card p-3">
-                    <div className="mb-2 text-sm font-medium">身份揭晓</div>
-                    <div className="space-y-2">
-                      {candidatePlayers.map(player => {
-                        const avatar = getAvatarData(player.display_name);
-                        const isMe = player.id === currentPlayer?.id;
-                        const isUndercover = isUndercoverMode && parseUndercoverMeta(player.ai_persona)?.role === 'undercover';
-                        const isAi = !isUndercoverMode && player.secret_role === 'ai';
-                        const roleLabel = isUndercoverMode
-                          ? (isUndercover ? '卧底' : '平民')
-                          : (isAi ? 'AI' : '真人');
-                        const isHighlight = isUndercover || isAi;
-                        return (
-                          <div key={player.id} className="flex items-center gap-2">
-                            <Avatar className="h-7 w-7">
-                              <AvatarFallback style={{ backgroundColor: avatar.backgroundColor, color: 'white' }}>{player.display_name[0]}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1 min-w-0 text-sm truncate">{player.display_name}</div>
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${isHighlight ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' : 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'}`}>
-                              {roleLabel}
-                            </span>
-                            {isMe && <span className="text-xs text-muted-foreground">(你)</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {!isJuryMode && !isUndercoverMode && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-lg bg-muted p-3">
-                        <div className="text-xs text-muted-foreground">识别率</div>
-                        <div className="mt-1 text-lg font-semibold">{formatPercent(result?.human_accuracy)}</div>
-                      </div>
-                      <div className="rounded-lg bg-muted p-3">
-                        <div className="text-xs text-muted-foreground">AI 逃脱率</div>
-                        <div className="mt-1 text-lg font-semibold">{formatPercent(result?.ai_escape_rate)}</div>
-                      </div>
-                    </div>
-                  )}
-                  {isUndercoverMode && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-lg bg-muted p-3">
-                        <div className="text-xs text-muted-foreground">你的判断</div>
-                        <div className="mt-1 text-lg font-semibold">{Number(result?.human_accuracy) === 1 ? '猜中' : '猜错'}</div>
-                      </div>
-                      <div className="rounded-lg bg-muted p-3">
-                        <div className="text-xs text-muted-foreground">你的身份</div>
-                        <div className="mt-1 text-lg font-semibold">{currentPlayerSecret?.role === 'undercover' ? '卧底' : '平民'}</div>
-                      </div>
-                    </div>
-                  )}
-                  <div className="rounded-lg bg-muted p-3 text-sm">
-                    {result?.summary || (isJuryMode ? '本案已经宣判。' : '本局已经揭晓。')}
-                  </div>
-                  <Button onClick={copyShare} className="w-full">
-                    {copied ? <Check className="mr-2 h-4 w-4" /> : <Share2 className="mr-2 h-4 w-4" />}
-                    复制战绩
-                  </Button>
-                  <Button onClick={() => navigate('/ai-game')} className="w-full bg-[#ff6600] text-white hover:bg-[#e65c00]">
-                    <Play className="mr-2 h-4 w-4" />
-                    再来一局
-                  </Button>
-                </div>
-              )}
-            </div>
+          <aside className="hidden min-h-0 border-l bg-card md:flex">
+            <GameControlPanel {...controlPanelProps} />
           </aside>
         </main>
-
-        {isMobile && selectedVote && canGuess && mobilePanel === 'info' && (
-          <div className="fixed left-0 right-0 z-40 border-t bg-card px-3 py-2 md:hidden" style={{ bottom: 'calc(3.5rem + env(safe-area-inset-bottom, 0px))' }}>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 text-sm">
-                已选择：<span className="font-medium">{candidatePlayers.find(p => p.id === selectedVote)?.display_name}</span>
-              </div>
-              <Button size="sm" onClick={() => setConfirmAction('vote')} disabled={busy} className="bg-[#ff6600] text-white hover:bg-[#e65c00]">
-                <Vote className="mr-1 h-3.5 w-3.5" />
-                投票
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {isMobile && (
-          <nav className="fixed bottom-0 left-0 right-0 z-50 flex border-t bg-card md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-            <button
-              onClick={() => { setMobilePanel('chat'); setUnreadCount(0); }}
-              className={`relative flex flex-1 items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors ${mobilePanel === 'chat' ? 'text-[#ff6600]' : 'text-muted-foreground'}`}
-            >
-              <MessageSquare className="h-4 w-4" />
-              聊天
-              {unreadCount > 0 && (
-                <span className="absolute right-1/4 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setMobilePanel('info')}
-              className={`flex flex-1 items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors ${mobilePanel === 'info' ? 'text-[#ff6600]' : 'text-muted-foreground'}`}
-            >
-              <Users className="h-4 w-4" />
-              信息
-            </button>
-          </nav>
-        )}
       </div>
 
       <Dialog open={confirmAction !== null} onOpenChange={(open) => { if (!open) setConfirmAction(null); }}>
@@ -911,7 +1461,7 @@ function AiGameRoom() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmAction(null)}>取消</Button>
             <Button
-              className="bg-[#ff6600] text-white hover:bg-[#e65c00]"
+              className="bg-[#c2410c] text-white hover:bg-[#9a3412]"
               onClick={async () => {
                 const action = confirmAction;
                 setConfirmAction(null);
@@ -921,7 +1471,7 @@ function AiGameRoom() {
                   await reveal();
                 }
               }}
-              disabled={busy}
+              disabled={busy || (confirmAction === 'reveal' && !canReveal)}
             >
               {busy ? '处理中...' : '确认'}
             </Button>

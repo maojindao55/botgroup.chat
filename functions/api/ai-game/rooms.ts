@@ -46,6 +46,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       aiCount?: number;
       durationSeconds?: number;
       displayName?: string;
+      wordTier?: string;
     };
     const mode = normalizeGameMode(body.mode);
     const defaults = defaultsForMode(mode);
@@ -54,7 +55,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const durationSeconds = Math.max(60, Math.min(Number(body.durationSeconds || defaults.durationSeconds), 600));
     const roomId = `game-${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
     const userId = (context as any).data?.user?.userId || null;
-    const title = body.title?.trim() || (mode === 'undercover' ? '谁是卧底' : mode === 'jury' ? 'AI 陪审团' : mode === 'solo' ? '单人鉴定官' : mode === 'reverse' ? '反向图灵局' : mode === 'topic' ? '主题卧底局' : '谁是 AI 经典局');
+    const rawTitle = body.title?.trim() || (mode === 'undercover' ? '谁是卧底' : mode === 'jury' ? 'AI 陪审团' : mode === 'solo' ? '单人鉴定官' : mode === 'reverse' ? '反向图灵局' : mode === 'topic' ? '主题卧底局' : '谁是 AI 经典局');
+    const title = mode === 'undercover' && rawTitle.startsWith('卧底晋级赛') && body.wordTier
+      ? `${rawTitle} [tier:${String(body.wordTier).replace(/[^\w-]/g, '').slice(0, 20)}]`
+      : rawTitle;
 
     await db.prepare(
       `INSERT INTO ai_game_rooms (${publicRoomFields})

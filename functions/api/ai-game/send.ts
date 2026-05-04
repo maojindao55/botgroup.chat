@@ -16,6 +16,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const room = await getRoom(db, roomId);
     if (!room) return json({ success: false, message: '房间不存在' }, 404);
     if (room.status !== 'playing') return json({ success: false, message: '当前不能发言' }, 400);
+    if (String(room.title || '').startsWith('卧底晋级赛')) {
+      const expired = await db.prepare(
+        `SELECT 1 as expired
+         WHERE datetime(?, '+' || ? || ' seconds') <= CURRENT_TIMESTAMP`
+      ).bind(room.started_at, room.duration_seconds).first();
+      if (expired) return json({ success: false, message: '本关已超时，挑战失败' }, 400);
+    }
 
     const player = await db.prepare(
       `SELECT id, display_name, player_type, eliminated_at FROM ai_game_players WHERE id = ? AND room_id = ?`

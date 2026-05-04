@@ -1,1 +1,12 @@
 -- Migration number: 0002 	 2025-03-28T06:06:16.353Z
+
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    phone VARCHAR(11) NOT NULL,
+    nickname VARCHAR(50),
+    avatar_url TEXT,
+    status INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

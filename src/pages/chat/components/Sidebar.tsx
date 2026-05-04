@@ -190,7 +190,7 @@ const Sidebar = ({ isOpen, toggleSidebar, selectedGroupIndex = 0, onSelectGroup,
                       <span className={cn(
                         "transition-all duration-200 whitespace-nowrap overflow-hidden text-foreground/90",
                         isOpen ? "opacity-100 max-w-full" : "opacity-0 max-w-0 md:max-w-0"
-                      )}>谁是 AI</span>
+                      )}>谁是卧底</span>
                     </a>
 
               <a 

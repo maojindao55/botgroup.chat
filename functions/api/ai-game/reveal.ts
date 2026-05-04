@@ -11,6 +11,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (!roomId) return json({ success: false, message: '缺少房间 ID' }, 400);
     const room = await getRoom(db, roomId);
     if (!room) return json({ success: false, message: '房间不存在' }, 404);
+    if (String(room.title || '').startsWith('卧底晋级赛')) {
+      return json({ success: false, message: '闯关模式不能直接揭晓身份' }, 400);
+    }
 
     const players = await getPlayers(db, roomId, true);
     const votesResult = await db.prepare(

@@ -23,6 +23,121 @@ export const aiGameGlobalRules = [
   '揭晓前只显示你自己的词，不显示其他玩家身份。',
 ];
 
+export interface AiGameCampaignLevel {
+  id: string;
+  levelNumber: number;
+  chapter: string;
+  title: string;
+  description: string;
+  maxPlayers: number;
+  aiCount: number;
+  durationSeconds: number;
+  difficulty: number;
+  wordTier: 'obvious' | 'close' | 'contextual' | 'abstract';
+  objective: string;
+  modifier: string;
+}
+
+const campaignTitlePool = [
+  '明显的异类',
+  '跟风的人',
+  '相近词陷阱',
+  '带偏投票',
+  '抽象词',
+  '卧底反杀',
+  '短时追问',
+  '反向观察',
+  '票型迷雾',
+  '高压终局',
+];
+
+const campaignModifierPool = [
+  '词语差异明显',
+  'AI 更爱顺着多数人说',
+  '词语更接近',
+  '讨论时间缩短',
+  '抽象词语',
+  '身份压力局',
+  '需要更快锁定矛盾',
+  '描述更容易互相覆盖',
+  '票型更容易被带偏',
+  '容错更低',
+];
+
+const campaignObjectives = [
+  '找出拿到不同词语的卧底。',
+  '在附和和真实描述之间找到破绽。',
+  '用追问逼出词语边界。',
+  '投票时坚持自己的证据链。',
+  '找出描述最空泛的玩家。',
+  '如果你是卧底，就成功甩锅；如果你是平民，就找出卧底。',
+];
+
+function getCampaignChapter(level: number) {
+  if (level <= 5) return '入门局';
+  if (level <= 15) return '标准局';
+  if (level <= 30) return '进阶局';
+  if (level <= 60) return '高手局';
+  return '无限挑战';
+}
+
+function getCampaignWordTier(level: number): AiGameCampaignLevel['wordTier'] {
+  if (level <= 5) return level === 1 ? 'obvious' : 'close';
+  if (level <= 15) return 'close';
+  if (level <= 30) return 'contextual';
+  return 'abstract';
+}
+
+function getCampaignDescription(level: number, title: string, wordTier: AiGameCampaignLevel['wordTier']) {
+  if (level === 1) return '词语差异比较大，先学会观察谁的描述方向不对。';
+  if (level === 2) return '卧底会附和别人，重点看谁只重复、不补细节。';
+  if (level === 3) return '平民词和卧底词接近，模糊描述会更有迷惑性。';
+  if (level === 4) return '这关要关注票型，别被看似合理的怀疑带走。';
+  if (level === 5) return '抽象词会让所有人都说得像真的，需要看具体例子。';
+  if (level === 6) return '你可能就是卧底。目标不是找人，而是把票导向平民。';
+
+  const tierText = {
+    obvious: '差异明显',
+    close: '相近词',
+    contextual: '场景词',
+    abstract: '抽象词',
+  }[wordTier];
+  return `${title}关卡，词组类型为${tierText}，需要结合发言细节、追问和票型判断。`;
+}
+
+export function generateCampaignLevel(levelNumber: number): AiGameCampaignLevel {
+  const level = Math.max(1, Math.floor(Number(levelNumber) || 1));
+  const difficulty = Math.min(10, 1 + Math.floor((level - 1) / 5));
+  const wordTier = getCampaignWordTier(level);
+  const titleBase = campaignTitlePool[(level - 1) % campaignTitlePool.length];
+  const modifier = campaignModifierPool[(level - 1) % campaignModifierPool.length];
+  const title = level <= 6 ? titleBase : `${titleBase} ${level}`;
+  const maxPlayers = level <= 1 ? 4 : level <= 2 ? 5 : level <= 30 ? 6 : 7;
+  const durationSeconds = Math.max(150, 270 - Math.floor((level - 1) / 4) * 10);
+
+  return {
+    id: `u${level}`,
+    levelNumber: level,
+    chapter: getCampaignChapter(level),
+    title,
+    description: getCampaignDescription(level, titleBase, wordTier),
+    maxPlayers,
+    aiCount: maxPlayers - 1,
+    durationSeconds,
+    difficulty,
+    wordTier,
+    objective: campaignObjectives[(level - 1) % campaignObjectives.length],
+    modifier,
+  };
+}
+
+export function getCampaignWindow(highestUnlockedLevel: number) {
+  const highest = Math.max(1, Math.floor(Number(highestUnlockedLevel) || 1));
+  const start = Math.max(1, highest - 3);
+  const end = highest + 6;
+  return Array.from({ length: end - start + 1 }, (_, index) => generateCampaignLevel(start + index));
+}
+
 export const aiGamePersonas = [
   '24 岁互联网运营，刚下班，回复偏短，不爱解释，偶尔只回半句话。',
   '大三学生，语气随意，不总接梗，偶尔回得有点敷衍。',

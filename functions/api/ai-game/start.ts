@@ -1,4 +1,4 @@
-import { encodeUndercoverMeta, getJuryRoles, getPlayers, getRoom, json, pickAiName, pickJuryCase, pickPersona, pickUndercoverPair } from '../../utils/aiGame';
+import { encodeUndercoverMeta, getDynamicUndercoverPair, getJuryRoles, getPlayers, getRoom, json, pickAiName, pickJuryCase, pickPersona, pickUndercoverPair } from '../../utils/aiGame';
 
 interface Env {
   bgdb: D1Database;
@@ -37,7 +37,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
 
       const allCandidates = (await getPlayers(db, roomId, true)).filter((p: any) => p.player_type !== 'observer');
-      const [civilianWord, undercoverWord] = pickUndercoverPair(roomId);
+      const tier = String(room.title || '').match(/\[tier:([\w-]+)\]/)?.[1] || '';
+      const [civilianWord, undercoverWord] = String(room.title || '').startsWith('卧底晋级赛')
+        ? await getDynamicUndercoverPair(db, context.env, { roomId, tier, seed: `${room.title}:${roomId}` })
+        : pickUndercoverPair(roomId);
       const undercoverIndex = [...roomId].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % allCandidates.length;
       for (let i = 0; i < allCandidates.length; i++) {
         const player = allCandidates[i];
