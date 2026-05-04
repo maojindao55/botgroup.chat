@@ -608,6 +608,8 @@ function MobileActionCard({
         </div>
       )}
       {isUndercoverMode && currentPlayerSecret?.word && (
+        <div className="mb-2 flex items-center justify-between rounded-lg bg-muted px-3 py-2">
+          <span className="text-xs text-muted-foreground">你的词语</span>
           <span className="max-w-[60%] truncate text-sm font-semibold text-[#c2410c]">{currentPlayerSecret.word}</span>
         </div>
       )}
