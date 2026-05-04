@@ -504,6 +504,7 @@ function MobileActionCard({
   }
 
   if (revealed) {
+    const wordPairMatch = result?.summary?.match(/平民词是「(.+?)」，卧底词是「(.+?)」/);
     return (
       <div className="rounded-lg border bg-card p-2.5 shadow-sm md:hidden">
         <div className="flex items-center justify-between gap-2">
@@ -525,6 +526,13 @@ function MobileActionCard({
             )}
           </div>
         </div>
+        {wordPairMatch && (
+          <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span>平民词：<b className="text-foreground">{wordPairMatch[1]}</b></span>
+            <span>·</span>
+            <span>卧底词：<b className="text-foreground">{wordPairMatch[2]}</b></span>
+          </div>
+        )}
       </div>
     );
   }
