@@ -485,8 +485,7 @@ function MobileActionCard({
             <div className="text-xs text-muted-foreground">已入座 {players.length}/{room.max_players}</div>
           </div>
           <Button size="sm" onClick={onStart} disabled={busy || players.length === 0} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
-            <Play className="mr-1 h-3.5 w-3.5" />
-            开始
+            {busy ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />生成中…</> : <><Play className="mr-1 h-3.5 w-3.5" />开始</>}
           </Button>
         </div>
         <Button
@@ -602,9 +601,13 @@ function MobileActionCard({
         </Button>
       </div>
 
+      {isUndercoverMode && !currentPlayerSecret?.word && room.status === 'playing' && (
+        <div className="mb-2 flex items-center justify-between rounded-lg bg-muted px-3 py-2 animate-pulse">
+          <span className="text-xs text-muted-foreground">正在分配词语…</span>
+          <span className="text-sm font-semibold text-[#c2410c]/60">生成中</span>
+        </div>
+      )}
       {isUndercoverMode && currentPlayerSecret?.word && (
-        <div className="mb-2 flex items-center justify-between rounded-lg bg-muted px-3 py-2">
-          <span className="text-xs text-muted-foreground">你的词语</span>
           <span className="max-w-[60%] truncate text-sm font-semibold text-[#c2410c]">{currentPlayerSecret.word}</span>
         </div>
       )}
