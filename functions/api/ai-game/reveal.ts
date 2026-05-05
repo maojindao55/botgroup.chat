@@ -1,4 +1,5 @@
 import { generateAiGameSummary, getPlayers, getRoom, json, parseUndercoverMeta } from '../../utils/aiGame';
+import { isCampaignRoom } from '../../utils/aiGameCampaign';
 import { canControlAiGameRoom } from '../../utils/aiGamePermission';
 
 interface Env {
@@ -17,7 +18,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       `SELECT id, player_type FROM ai_game_players WHERE room_id = ? AND id = ?`
     ).bind(roomId, playerId).first();
     if (!canControlAiGameRoom(requester)) return json({ success: false, message: '只有玩家可以揭晓身份' }, 403);
-    if (String(room.title || '').startsWith('卧底晋级赛')) {
+    if (isCampaignRoom(room)) {
       return json({ success: false, message: '闯关模式不能直接揭晓身份' }, 400);
     }
 

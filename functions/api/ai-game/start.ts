@@ -1,4 +1,5 @@
 import { encodeUndercoverMeta, getDynamicUndercoverPair, getJuryRoles, getPlayers, getRoom, json, pickAiName, pickJuryCase, pickPersona, pickUndercoverPair } from '../../utils/aiGame';
+import { isCampaignRoom, resolveCampaignWordTier } from '../../utils/aiGameCampaign';
 import { canControlAiGameRoom } from '../../utils/aiGamePermission';
 
 interface Env {
@@ -43,8 +44,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
 
       const allCandidates = (await getPlayers(db, roomId, true)).filter((p: any) => p.player_type !== 'observer');
-      const tier = String(room.title || '').match(/\[tier:([\w-]+)\]/)?.[1] || '';
-      const [civilianWord, undercoverWord] = String(room.title || '').startsWith('卧底晋级赛')
+      const tier = resolveCampaignWordTier(room);
+      const [civilianWord, undercoverWord] = isCampaignRoom(room)
         ? await getDynamicUndercoverPair(db, context.env, { roomId, tier, seed: `${room.title}:${roomId}` })
         : pickUndercoverPair(roomId);
       const undercoverIndex = [...roomId].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % allCandidates.length;

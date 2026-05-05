@@ -1,4 +1,5 @@
 import { generateUndercoverVote, getPlayers, getRoom, json, parseUndercoverMeta } from '../../utils/aiGame';
+import { isCampaignRoom } from '../../utils/aiGameCampaign';
 
 interface Env {
   bgdb: D1Database;
@@ -17,7 +18,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const room = await getRoom(db, roomId);
     if (!room) return json({ success: false, message: '房间不存在' }, 404);
     if (room.status !== 'voting' && room.status !== 'playing') return json({ success: false, message: '当前不能投票' }, 400);
-    if (String(room.title || '').startsWith('卧底晋级赛')) {
+    if (isCampaignRoom(room)) {
       const expired = await db.prepare(
         `SELECT 1 as expired
          WHERE datetime(?, '+' || ? || ' seconds') <= CURRENT_TIMESTAMP`
@@ -140,7 +141,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           const groupSucceeded = humanMeta?.role === 'undercover'
             ? eliminated?.id !== humanPlayer?.id && eliminatedMeta?.role === 'civilian'
             : eliminatedMeta?.role === 'undercover';
-          const isCampaignRoom = String(room.title || '').startsWith('卧底晋级赛');
           const wordRevealText = `平民词是「${pair?.civilianWord || ''}」，卧底词是「${pair?.undercoverWord || ''}」。`;
           const summary = humanMeta?.role === 'undercover'
             ? `你是卧底，词语是「${humanMeta.word}」。你投给了 ${humanTarget?.display_name || '未知'}（${humanTargetMeta?.role === 'undercover' ? '卧底' : '平民'}），${playerGuessCorrect ? '这次甩锅方向是对的' : '这票没有成功甩到平民身上'}。多数票投出 ${eliminated?.display_name || '未知'}（${eliminatedMeta?.role === 'undercover' ? '卧底' : '平民'}），${groupSucceeded ? '群体被你带偏，卧底获胜' : '群体没有被带偏，卧底失败'}。${wordRevealText}`

@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { modelConfigs } from '../../src/config/aiCharacters';
 import { generateUndercoverFallbackReply } from './aiGameFallback';
-import { hashStringToIndex } from './aiGameWords';
+import { getDynamicPairLookupOrder, hashStringToIndex, makeWordPairKey, validateGeneratedUndercoverPair } from './aiGameWords';
 
 export const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status,
@@ -10,7 +10,8 @@ export const json = (data: unknown, status = 200) => new Response(JSON.stringify
 
 export const publicRoomFields = `
   id, mode, status, title, max_players, ai_count, duration_seconds,
-  message_limit, created_by, started_at, ended_at, created_at
+  message_limit, created_by, started_at, ended_at, created_at,
+  word_tier, campaign_level
 `;
 
 const personas = [
@@ -320,23 +321,6 @@ function pickFallbackPair(seed: string, tier?: string | null) {
   return pairs[hashStringToIndex(`${normalizedTier}:${seed}`, pairs.length)] || pickUndercoverPair(seed);
 }
 
-function isSafeGeneratedWord(value: string) {
-  const word = value.trim();
-  if (!/^[\u4e00-\u9fa5]{2,4}$/.test(word)) return false;
-  if (/政治|成人|色情|暴力|疾病|癌|药|品牌|公司|青团|汤圆|月饼|粽子|元宵|腊八/.test(word)) return false;
-  return true;
-}
-
-function isSameWordVariant(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diffCount = 0;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) diffCount++;
-    if (diffCount > 1) return false;
-  }
-  return diffCount === 1;
-}
-
 export async function getDynamicUndercoverPair(db: D1Database, env: any, options: {
   roomId: string;
   tier?: string | null;
@@ -352,31 +336,39 @@ export async function getDynamicUndercoverPair(db: D1Database, env: any, options
     ).bind(row.id).run();
   };
 
-  const cached = await db.prepare(
-    `SELECT * FROM ai_game_word_pairs
-     WHERE tier = ? AND (last_used_at IS NULL OR last_used_at < datetime('now', '-30 minutes'))
-     ORDER BY used_count ASC, ABS(RANDOM()) % 1000
-     LIMIT 1`
-  ).bind(tier).first();
+  for (const step of getDynamicPairLookupOrder()) {
+    if (step === 'generate') {
+      const generated = await generateAndCachePair(db, env, tier, seed);
+      if (generated) return generated;
+    }
 
-  if (cached?.id && cached.civilian_word && cached.undercover_word) {
-    await usedMark(cached);
-    return [String(cached.civilian_word), String(cached.undercover_word)];
-  }
+    if (step === 'fresh-cache') {
+      const cached = await db.prepare(
+        `SELECT * FROM ai_game_word_pairs
+         WHERE tier = ? AND (last_used_at IS NULL OR last_used_at < datetime('now', '-30 minutes'))
+         ORDER BY used_count ASC, ABS(RANDOM()) % 1000
+         LIMIT 1`
+      ).bind(tier).first();
 
-  const generated = await generateAndCachePair(db, env, tier, seed);
-  if (generated) return generated;
+      if (cached?.id && cached.civilian_word && cached.undercover_word) {
+        await usedMark(cached);
+        return [String(cached.civilian_word), String(cached.undercover_word)];
+      }
+    }
 
-  const anyCached = await db.prepare(
-    `SELECT * FROM ai_game_word_pairs
-     WHERE tier = ?
-     ORDER BY last_used_at ASC, used_count ASC
-     LIMIT 1`
-  ).bind(tier).first();
+    if (step === 'stale-cache') {
+      const anyCached = await db.prepare(
+        `SELECT * FROM ai_game_word_pairs
+         WHERE tier = ?
+         ORDER BY last_used_at ASC, used_count ASC
+         LIMIT 1`
+      ).bind(tier).first();
 
-  if (anyCached?.id && anyCached.civilian_word && anyCached.undercover_word) {
-    await usedMark(anyCached);
-    return [String(anyCached.civilian_word), String(anyCached.undercover_word)];
+      if (anyCached?.id && anyCached.civilian_word && anyCached.undercover_word) {
+        await usedMark(anyCached);
+        return [String(anyCached.civilian_word), String(anyCached.undercover_word)];
+      }
+    }
   }
 
   return pickFallbackPair(seed, tier);
@@ -387,7 +379,7 @@ async function generateAndCachePair(db: D1Database, env: any, tier: string, seed
     const existing = await db.prepare(
       `SELECT civilian_word, undercover_word FROM ai_game_word_pairs WHERE tier = ?`
     ).bind(tier).all();
-    const existingSet = new Set((existing.results || []).map((r: any) => `${r.civilian_word}|${r.undercover_word}`));
+    const existingSet = new Set((existing.results || []).map((r: any) => makeWordPairKey(String(r.civilian_word), String(r.undercover_word))));
     const usedWords = new Set<string>();
     for (const r of (existing.results || [])) {
       usedWords.add(String(r.civilian_word));
@@ -413,7 +405,7 @@ async function generateAndCachePair(db: D1Database, env: any, tier: string, seed
       `【当前难度】${tier}：${tierHint}`,
       '',
       '【硬性要求】',
-      '1. 必须是2-4个汉字的日常高频词，中小学生都认识、都接触过。',
+      '1. 必须是1-4个汉字的日常高频词，中小学生都认识、都接触过。',
       '2. 两个词必须属于同一大类，生活中经常一起出现。',
       '3. 不能互相包含（如"手机/手机壳"），不能是同义词，不能是同一个词的简繁体变体（如"风筝/风箏"），不能一眼完全无关。',
       '4. 禁止：品牌名、人名、网络梗、地方小吃、节日食品、方言词、生僻词、专业术语。',
@@ -444,17 +436,8 @@ async function generateAndCachePair(db: D1Database, env: any, tier: string, seed
       const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
       const civilianWord = String(parsed.civilianWord || '').trim();
       const undercoverWord = String(parsed.undercoverWord || '').trim();
-      if (
-        isSafeGeneratedWord(civilianWord) &&
-        isSafeGeneratedWord(undercoverWord) &&
-        civilianWord !== undercoverWord &&
-        !civilianWord.includes(undercoverWord) &&
-        !undercoverWord.includes(civilianWord) &&
-        !isSameWordVariant(civilianWord, undercoverWord) &&
-        !usedWords.has(civilianWord) &&
-        !usedWords.has(undercoverWord)
-      ) {
-        const pairKey = `${civilianWord}|${undercoverWord}`;
+      if (validateGeneratedUndercoverPair(civilianWord, undercoverWord, usedWords).valid) {
+        const pairKey = makeWordPairKey(civilianWord, undercoverWord);
         if (!existingSet.has(pairKey)) {
           const id = `pair-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
           await db.prepare(

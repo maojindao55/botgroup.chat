@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, Check, Copy, Eye, Flag, Loader2, Lock, Play, Send, Share2, Star, Users, Vote, AlertCircle, Trophy } from 'lucide-react';
+import { ArrowLeft, Bot, Check, Copy, Download, Eye, Flag, Loader2, Lock, Play, Send, Share2, Star, Users, Vote, AlertCircle, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,8 @@ import { request } from '@/utils/request';
 import { getAvatarData } from '@/utils/avatar';
 import type { CurrentPlayerSecret, GameMessage, GamePlayer, GameResult, GameRoomData } from './types';
 import { getPlayerRoleLabel, parseVoteResultMessage } from './voteMessage';
+import { buildAiGameChallengeUrl, parseChallengeLevel } from './share';
+import { createQrSvgDataUrl } from './qr';
 
 const playerStorageKey = (roomId: string) => `ai-game-player:${roomId}`;
 const roomLevelStorageKey = (roomId: string) => `ai-game-room-level:${roomId}`;
@@ -81,6 +83,18 @@ function toUtcDate(date?: string | null) {
 function formatPercent(value?: number | null) {
   if (value == null || Number.isNaN(Number(value))) return '0%';
   return `${Math.round(Number(value) * 100)}%`;
+}
+
+function formatCountdown(seconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const restSeconds = safeSeconds % 60;
+  return `${minutes}:${String(restSeconds).padStart(2, '0')}`;
+}
+
+function extractUndercoverWordPair(summary?: string | null) {
+  const match = summary?.match(/平民词是「(.+?)」，卧底词是「(.+?)」/);
+  return match ? { civilianWord: match[1], undercoverWord: match[2] } : null;
 }
 
 function PlayerAvatar({ player, revealed, compact = false }: { player: GamePlayer; revealed?: boolean; compact?: boolean }) {
@@ -162,6 +176,156 @@ function VoteRecord({
       <VoteRoleBadge label={targetRole} />
       {targetEliminated && <span className="flex-none font-medium text-red-500">已出局</span>}
     </div>
+  );
+}
+
+function AiGameShareDialog({
+  open,
+  onOpenChange,
+  room,
+  result,
+  campaignLevel,
+  campaignStars,
+  currentPlayerSecret,
+  challengeUrl,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  room: GameRoomData;
+  result: GameResult | null;
+  campaignLevel: AiGameCampaignLevel | null;
+  campaignStars: number;
+  currentPlayerSecret: CurrentPlayerSecret | null;
+  challengeUrl: string;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const wordPair = extractUndercoverWordPair(result?.summary);
+  const guessedRight = Number(result?.human_accuracy) === 1;
+  const title = campaignLevel ? `卧底晋级赛 第 ${campaignLevel.levelNumber} 关` : room.title.replace(/\s*\[tier:[^\]]+\]/, '');
+  const verdict = guessedRight ? '一票抓住破绽' : '这局被带偏了';
+  const roleText = currentPlayerSecret?.role === 'undercover' ? '卧底' : currentPlayerSecret?.role ? '平民' : '玩家';
+  const qrCodeUrl = useMemo(() => {
+    try {
+      return createQrSvgDataUrl(challengeUrl);
+    } catch {
+      return '';
+    }
+  }, [challengeUrl]);
+
+  const copyChallengeLink = async () => {
+    await navigator.clipboard.writeText(challengeUrl);
+    toast.success('挑战链接已复制');
+  };
+
+  const savePoster = async () => {
+    if (!cardRef.current) return;
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: '#fff7ed',
+        scale: 2,
+        useCORS: true,
+      });
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png', 1));
+      if (!blob) throw new Error('poster blob failed');
+
+      if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && navigator.share && navigator.canShare?.({ files: [new File([blob], 'ai-game-result.png', { type: 'image/png' })] })) {
+        await navigator.share({
+          files: [new File([blob], 'ai-game-result.png', { type: 'image/png' })],
+          title: title,
+          text: result?.share_text || '我刚玩了一局谁是卧底',
+        });
+        return;
+      }
+
+      const pngUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = pngUrl;
+      link.download = 'ai-game-result.png';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(pngUrl);
+    } catch (error) {
+      console.error('ai-game share poster failed:', error);
+      toast.error('保存战绩卡失败');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[420px] p-0">
+        <DialogHeader className="sr-only">
+          <DialogTitle>战绩卡</DialogTitle>
+          <DialogDescription>保存战绩卡或复制挑战链接</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[80vh] overflow-y-auto p-3">
+          <div ref={cardRef} className="overflow-hidden rounded-lg border border-orange-200 bg-orange-50 text-zinc-950 shadow-sm">
+            <div className="bg-[#c2410c] px-5 py-4 text-white">
+              <div className="text-xs opacity-80">谁是卧底 · 战绩卡</div>
+              <div className="mt-1 text-xl font-semibold tracking-normal">{verdict}</div>
+              <div className="mt-1 truncate text-sm opacity-90">{title}</div>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-md bg-white p-2">
+                  <div className="text-[11px] text-zinc-500">结果</div>
+                  <div className="mt-1 text-sm font-semibold">{guessedRight ? '猜中' : '猜错'}</div>
+                </div>
+                <div className="rounded-md bg-white p-2">
+                  <div className="text-[11px] text-zinc-500">身份</div>
+                  <div className="mt-1 text-sm font-semibold">{roleText}</div>
+                </div>
+                <div className="rounded-md bg-white p-2">
+                  <div className="text-[11px] text-zinc-500">星级</div>
+                  <div className="mt-1 flex justify-center text-[#c2410c]">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <Star key={index} className={`h-4 w-4 ${index < campaignStars ? 'fill-current' : 'opacity-25'}`} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {wordPair && (
+                <div className="rounded-md bg-white p-3">
+                  <div className="text-xs text-zinc-500">本局词组</div>
+                  <div className="mt-2 flex items-center justify-between gap-2 text-sm">
+                    <span>平民词 <b>{wordPair.civilianWord}</b></span>
+                    <span className="text-zinc-300">/</span>
+                    <span>卧底词 <b>{wordPair.undercoverWord}</b></span>
+                  </div>
+                </div>
+              )}
+              <div className="rounded-md bg-white p-3 text-sm leading-6 text-zinc-700">
+                {result?.share_text || '我刚玩了一局谁是卧底，来挑战同一关。'}
+              </div>
+              <div className="flex items-center gap-3 border-t border-orange-200 pt-3">
+                {qrCodeUrl && (
+                  <img
+                    src={qrCodeUrl}
+                    alt="挑战二维码"
+                    className="h-20 w-20 flex-none rounded-md border border-orange-100 bg-white p-1"
+                  />
+                )}
+                <div className="min-w-0 text-xs leading-5 text-zinc-500">
+                  <div className="font-medium text-zinc-700">扫码挑战同一关</div>
+                  <div className="mt-0.5 break-all">{challengeUrl}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button variant="outline" onClick={copyChallengeLink}>
+              <Copy className="mr-2 h-4 w-4" />
+              复制挑战链接
+            </Button>
+            <Button onClick={savePoster} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+              <Download className="mr-2 h-4 w-4" />
+              保存图片
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -374,21 +538,10 @@ function GameControlPanel({
             ) : (
               <>
             {!compact && (
-              <div className="rounded-lg bg-muted p-3">
-                <div className="mb-2 text-sm font-medium">当前目标</div>
-                <div className="text-sm text-muted-foreground">{modeRules.goal}</div>
-                <div className="mb-2 mt-3 text-sm font-medium">判断线索</div>
-                <RuleList items={isUndercoverMode ? [
-                  '看谁的描述和大家不是同一个方向',
-                  '追问模糊发言的人，让他补一个细节',
-                  '卧底可以故意附和多数人，平民要找出这种顺风话',
-                  '每轮投出一人后不公布身份，剩下的人继续聊',
-                ] : [
-                  '是否能自然接住上下文',
-                  '是否有真实但不过度编造的细节',
-                  '是否总是回答得太完整、太礼貌',
-                  '是否会回避追问或突然转移话题',
-                ]} />
+              <div className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+                {isUndercoverMode
+                  ? '描述自己的词，观察发言方向，觉得可疑就投票。'
+                  : '继续提问观察，选中可疑玩家后投票。'}
               </div>
             )}
             {!isJuryMode && (
@@ -476,7 +629,7 @@ function GameControlPanel({
               <>
                 <Button onClick={onCopyShare} className="w-full">
                   {copied ? <Check className="mr-2 h-4 w-4" /> : <Share2 className="mr-2 h-4 w-4" />}
-                  复制战绩
+                  生成战绩卡
                 </Button>
                 {!onReplay && (
                   <Button onClick={onNewGame} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
@@ -719,17 +872,23 @@ function MobileActionCard({
 
 function AiGameHome() {
   const navigate = useNavigate();
-  const [homeSection, setHomeSection] = useState<'menu' | 'campaign' | 'practice'>('menu');
+  const challengeLevelNumber = typeof window !== 'undefined' ? parseChallengeLevel(window.location.search) : null;
+  const [homeSection, setHomeSection] = useState<'menu' | 'campaign' | 'practice'>(() => challengeLevelNumber ? 'campaign' : 'menu');
   const [mode, setMode] = useState(aiGameModes[0].id);
   const [name, setName] = useState(localStorage.getItem('ai-game-name') || '');
   const [roomId, setRoomId] = useState('');
   const [creating, setCreating] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const [campaignProgress] = useState<CampaignProgress>(() => loadCampaignProgress());
 
   const [joining, setJoining] = useState(false);
 
   const selectedMode = aiGameModes.find(item => item.id === mode) || aiGameModes[0];
-  const visibleCampaignLevels = useMemo(() => getCampaignWindow(campaignProgress.highestUnlockedLevel), [campaignProgress.highestUnlockedLevel]);
+  const visibleCampaignLevels = useMemo(() => {
+    const levels = getCampaignWindow(Math.max(campaignProgress.highestUnlockedLevel, challengeLevelNumber || 1));
+    if (!challengeLevelNumber || levels.some(level => level.levelNumber === challengeLevelNumber)) return levels;
+    return [generateCampaignLevel(challengeLevelNumber), ...levels].sort((a, b) => a.levelNumber - b.levelNumber);
+  }, [campaignProgress.highestUnlockedLevel, challengeLevelNumber]);
   const clearedLevels = useMemo(() => Object.values(campaignProgress.bestStars).filter(stars => stars > 0).length, [campaignProgress.bestStars]);
 
   const createRoom = async () => {
@@ -809,6 +968,7 @@ function AiGameHome() {
           aiCount: level.aiCount,
           durationSeconds: level.durationSeconds,
           wordTier: level.wordTier,
+          campaignLevel: level.levelNumber,
         }),
       });
       const roomData = await roomRes.json();
@@ -829,7 +989,29 @@ function AiGameHome() {
     }
   };
 
-  const isLevelUnlocked = (level: AiGameCampaignLevel) => level.levelNumber <= campaignProgress.highestUnlockedLevel;
+  const isLevelUnlocked = (level: AiGameCampaignLevel) => level.levelNumber <= campaignProgress.highestUnlockedLevel || level.levelNumber === challengeLevelNumber;
+
+  const shareGame = async () => {
+    const url = buildAiGameChallengeUrl(window.location.href, null);
+    const title = '卧底晋级赛';
+    const text = '来玩一局谁是卧底，和一群 AI 玩家一起找卧底。';
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text, url });
+      } else {
+        await navigator.clipboard.writeText(`${text} ${url}`);
+        setShareCopied(true);
+        toast.success('游戏链接已复制');
+        setTimeout(() => setShareCopied(false), 1800);
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return;
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      setShareCopied(true);
+      toast.success('游戏链接已复制');
+      setTimeout(() => setShareCopied(false), 1800);
+    }
+  };
 
   return (
     <div className="fixed inset-0 overflow-y-auto bg-background">
@@ -838,9 +1020,15 @@ function AiGameHome() {
           <Button variant="outline" onClick={() => homeSection === 'menu' ? navigate('/') : setHomeSection('menu')}>
             {homeSection === 'menu' ? '返回群聊' : '返回'}
           </Button>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Bot className="h-4 w-4" />
-            真人 AI 混聊局
+          <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-2 text-sm text-muted-foreground sm:flex">
+              <Bot className="h-4 w-4" />
+              真人 AI 混聊局
+            </div>
+            <Button variant="outline" size="sm" onClick={shareGame}>
+              {shareCopied ? <Check className="mr-1 h-4 w-4" /> : <Share2 className="mr-1 h-4 w-4" />}
+              分享游戏
+            </Button>
           </div>
         </div>
 
@@ -910,10 +1098,10 @@ function AiGameHome() {
                   key={level.id}
                   onClick={() => unlocked && createCampaignRoom(level)}
                   disabled={!unlocked || creating}
-                  className={`min-w-0 rounded-lg border p-3 text-left transition-colors ${unlocked ? 'bg-background hover:bg-accent' : 'cursor-not-allowed bg-muted/60 opacity-70'} ${stars ? 'border-[#c2410c]/50' : ''}`}
+                  className={`min-w-0 rounded-lg border p-3 text-left transition-colors ${unlocked ? 'bg-background hover:bg-accent' : 'cursor-not-allowed bg-muted/60 opacity-70'} ${stars || level.levelNumber === challengeLevelNumber ? 'border-[#c2410c]/50' : ''}`}
                 >
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="text-xs font-medium text-muted-foreground">{level.chapter}</div>
+                    <div className="text-xs font-medium text-muted-foreground">{level.levelNumber === challengeLevelNumber ? '好友挑战' : level.chapter}</div>
                     {unlocked ? (
                       <div className="flex text-[#c2410c]">
                         {Array.from({ length: 3 }).map((_, starIndex) => (
@@ -1026,6 +1214,7 @@ function AiGameRoom() {
   const [campaignLevelId, setCampaignLevelId] = useState(() => localStorage.getItem(roomLevelStorageKey(roomId)) || '');
   const [selectedVote, setSelectedVote] = useState('');
   const [mobileVoteOpen, setMobileVoteOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [votingPending, setVotingPending] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1061,6 +1250,7 @@ function AiGameRoom() {
     setCampaignLevelId(localStorage.getItem(roomLevelStorageKey(roomId)) || '');
     setSelectedVote('');
     setMobileVoteOpen(false);
+    setShareDialogOpen(false);
     setInput('');
     setRoom(null);
     setPlayers([]);
@@ -1074,7 +1264,11 @@ function AiGameRoom() {
     if (!roomId) return;
     const res = await request(`/api/ai-game/rooms?id=${roomId}${playerId ? `&player=${playerId}` : ''}`);
     const data = await res.json();
-    setRoom(data.data.room);
+    const loadedRoom = data.data.room;
+    setRoom(loadedRoom);
+    if (!localStorage.getItem(roomLevelStorageKey(roomId)) && Number(loadedRoom?.campaign_level) > 0) {
+      setCampaignLevelId(String(loadedRoom.campaign_level));
+    }
     setPlayers(data.data.players || []);
     setResult(data.data.result || null);
     setCurrentPlayerSecret(data.data.currentPlayerSecret || null);
@@ -1265,10 +1459,7 @@ function AiGameRoom() {
   };
 
   const copyShare = async () => {
-    const text = `${result?.share_text || '我刚玩了一局“谁是 AI”，来猜猜谁是真人。'} ${window.location.href}`;
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
+    setShareDialogOpen(true);
   };
 
   const copyObserveInvite = async () => {
@@ -1293,6 +1484,7 @@ function AiGameRoom() {
           aiCount: level.aiCount,
           durationSeconds: level.durationSeconds,
           wordTier: level.wordTier,
+          campaignLevel: level.levelNumber,
         }),
       });
       const roomData = await roomRes.json();
@@ -1345,6 +1537,7 @@ function AiGameRoom() {
     if (currentStatus === 'voting') return '投票中';
     return '进行中';
   })();
+  const showHeaderCountdown = currentStatus === 'playing' && !revealed && !campaignTimedOut && startedAt && room;
   const controlPanelProps = {
     room,
     modeRules,
@@ -1375,17 +1568,38 @@ function AiGameRoom() {
   };
   const nextCampaignLevel = campaignLevel ? generateCampaignLevel(campaignLevel.levelNumber + 1) : undefined;
   const campaignStars = campaignLevel && result && revealed && Number(result.human_accuracy) === 1 ? 3 : 0;
+  const challengeUrl = typeof window !== 'undefined'
+    ? buildAiGameChallengeUrl(window.location.href, campaignLevel?.levelNumber)
+    : '';
 
   return (
     <div className="fixed inset-0 bg-background">
       <div className="flex h-full flex-col">
         <header className="flex flex-none items-center justify-between border-b bg-card px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/ai-game')}>返回</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/ai-game')}
+              aria-label="返回"
+              title="返回"
+              className="h-8 w-8 flex-none rounded-full p-0"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
             <div className="min-w-0">
               <div className="truncate text-sm font-medium">{room.title.replace(/\s*\[tier:[^\]]+\]/, '')}</div>
-              <div className="text-xs text-muted-foreground">
-                {statusText}
+              <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                <span>{statusText}</span>
+                {showHeaderCountdown && (
+                  <span className={`rounded-md px-1.5 py-0.5 font-mono text-[11px] font-medium ${
+                    secondsLeft <= 30
+                      ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+                      : 'bg-muted text-foreground'
+                  }`}>
+                    {formatCountdown(secondsLeft)}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -1667,6 +1881,18 @@ function AiGameRoom() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {revealed && (
+        <AiGameShareDialog
+          open={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+          room={room}
+          result={result}
+          campaignLevel={campaignLevel}
+          campaignStars={campaignStars}
+          currentPlayerSecret={currentPlayerSecret}
+          challengeUrl={challengeUrl}
+        />
+      )}
     </div>
   );
 }

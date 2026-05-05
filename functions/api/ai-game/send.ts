@@ -1,4 +1,5 @@
 import { getRoom, json } from '../../utils/aiGame';
+import { isCampaignRoom } from '../../utils/aiGameCampaign';
 
 interface Env {
   bgdb: D1Database;
@@ -16,7 +17,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const room = await getRoom(db, roomId);
     if (!room) return json({ success: false, message: '房间不存在' }, 404);
     if (room.status !== 'playing') return json({ success: false, message: '当前不能发言' }, 400);
-    if (String(room.title || '').startsWith('卧底晋级赛')) {
+    if (isCampaignRoom(room)) {
       const expired = await db.prepare(
         `SELECT 1 as expired
          WHERE datetime(?, '+' || ? || ' seconds') <= CURRENT_TIMESTAMP`
