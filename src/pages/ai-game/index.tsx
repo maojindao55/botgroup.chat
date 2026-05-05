@@ -348,7 +348,7 @@ function GameControlPanel({
                 <RuleList items={modeRules.flow} />
               </div>
             )}
-            <Button onClick={onStart} disabled={busy || players.length === 0} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
+            <Button onClick={onStart} disabled={busy || !currentPlayer} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
               {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在生成词组…</> : <><Play className="mr-2 h-4 w-4" />开始游戏</>}
             </Button>
             <Button
@@ -514,13 +514,13 @@ function MobileActionCard({
   isObserver,
   isJuryMode,
   isUndercoverMode,
+  onReplay,
   result,
   copied,
   effectiveStatus,
   onStart,
   onCopyShare,
   onNewGame,
-  onReplay,
   onConfirm,
   voteHint,
   voteOpen,
@@ -546,19 +546,21 @@ function MobileActionCard({
             <div className="text-sm font-medium">等待开局</div>
             <div className="text-xs text-muted-foreground">已入座 {players.length}/{room.max_players}</div>
           </div>
-          <Button size="sm" onClick={onStart} disabled={busy || players.length === 0} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+          <Button size="sm" onClick={onStart} disabled={busy || !currentPlayer} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
             {busy ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />生成中…</> : <><Play className="mr-1 h-3.5 w-3.5" />开始</>}
           </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-2 w-full"
-          onClick={() => navigator.clipboard.writeText(room.id).then(() => toast.success('房间 ID 已复制'))}
-        >
-          <Copy className="mr-1 h-3.5 w-3.5" />
-          复制房间 ID
-        </Button>
+        {!onReplay && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 w-full"
+            onClick={() => navigator.clipboard.writeText(room.id).then(() => toast.success('房间 ID 已复制'))}
+          >
+            <Copy className="mr-1 h-3.5 w-3.5" />
+            复制房间 ID
+          </Button>
+        )}
       </div>
     );
   }
@@ -783,10 +785,11 @@ function AiGameHome() {
       }
       if (targetRoom.status === 'waiting') {
         toast.success(`房间「${targetRoom.title}」等待中 (${humanCount}/${targetRoom.max_players})`);
+        navigate(`/ai-game/${id}`);
       } else {
         toast.info(`房间「${targetRoom.title}」进行中，将作为旁观者加入`);
+        navigate(`/ai-game/${id}?observe=1`);
       }
-      navigate(`/ai-game/${id}`);
     } catch (error: any) {
       toast.error(error.message || '房间查询失败');
     } finally {
@@ -1184,9 +1187,13 @@ function AiGameRoom() {
   }, [joinAsObserver, observeInvite, playerId]);
 
   const start = async () => {
+    if (!currentPlayer || isObserver) {
+      toast.error('请先加入房间');
+      return;
+    }
     setBusy(true);
     try {
-      await request('/api/ai-game/start', { method: 'POST', body: JSON.stringify({ roomId }) });
+      await request('/api/ai-game/start', { method: 'POST', body: JSON.stringify({ roomId, playerId: currentPlayer.id }) });
       await loadRoom();
       await loadMessages();
     } catch (error: any) {
@@ -1238,13 +1245,17 @@ function AiGameRoom() {
   };
 
   const reveal = async () => {
+    if (!currentPlayer || isObserver) {
+      toast.error('只有玩家可以揭晓身份');
+      return;
+    }
     if (campaignLevel) {
       toast.error('闯关模式不能直接揭晓身份');
       return;
     }
     setBusy(true);
     try {
-      await request('/api/ai-game/reveal', { method: 'POST', body: JSON.stringify({ roomId }) });
+      await request('/api/ai-game/reveal', { method: 'POST', body: JSON.stringify({ roomId, playerId: currentPlayer.id }) });
       await loadRoom();
     } catch (error: any) {
       toast.error(error.message || '揭晓失败');
@@ -1316,11 +1327,12 @@ function AiGameRoom() {
   const isJuryMode = room.mode === 'jury';
   const isUndercoverMode = room.mode === 'undercover';
   const currentPlayerEliminated = !!currentPlayer?.eliminated_at;
+  const isParticipant = !!currentPlayer && !isObserver;
   const campaignTimedOut = !!campaignLevel && !revealed && room.status === 'playing' && secondsLeft <= 0;
   const needsNewDescriptionBeforeVote = isUndercoverMode && latestUndercoverVoteResultId > 0 && latestOwnDescriptionId < latestUndercoverVoteResultId;
-  const canVote = !!currentPlayer && !isObserver && !currentPlayerEliminated && (currentStatus === 'playing' || currentStatus === 'voting') && !revealed && !needsNewDescriptionBeforeVote && !campaignTimedOut;
-  const canSpeak = !!currentPlayer && !isObserver && !currentPlayerEliminated && currentStatus === 'playing' && !campaignTimedOut;
-  const canReveal = !campaignLevel && !campaignTimedOut;
+  const canVote = isParticipant && !currentPlayerEliminated && (currentStatus === 'playing' || currentStatus === 'voting') && !revealed && !needsNewDescriptionBeforeVote && !campaignTimedOut;
+  const canSpeak = isParticipant && !currentPlayerEliminated && currentStatus === 'playing' && !campaignTimedOut;
+  const canReveal = isParticipant && !campaignLevel && !campaignTimedOut;
   const canGuess = canVote && !isJuryMode;
   const voteHint = needsNewDescriptionBeforeVote ? '上一轮已完成投票，请先继续描述后再投下一轮。' : undefined;
   const statusText = (() => {

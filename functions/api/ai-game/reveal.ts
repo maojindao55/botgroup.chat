@@ -1,4 +1,5 @@
 import { generateAiGameSummary, getPlayers, getRoom, json, parseUndercoverMeta } from '../../utils/aiGame';
+import { canControlAiGameRoom } from '../../utils/aiGamePermission';
 
 interface Env {
   bgdb: D1Database;
@@ -7,10 +8,15 @@ interface Env {
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     const db = context.env.bgdb;
-    const { roomId } = await context.request.json() as { roomId: string };
+    const { roomId, playerId } = await context.request.json() as { roomId: string; playerId?: string };
     if (!roomId) return json({ success: false, message: '缺少房间 ID' }, 400);
     const room = await getRoom(db, roomId);
     if (!room) return json({ success: false, message: '房间不存在' }, 404);
+    if (!playerId) return json({ success: false, message: '请先加入房间' }, 403);
+    const requester = await db.prepare(
+      `SELECT id, player_type FROM ai_game_players WHERE room_id = ? AND id = ?`
+    ).bind(roomId, playerId).first();
+    if (!canControlAiGameRoom(requester)) return json({ success: false, message: '只有玩家可以揭晓身份' }, 403);
     if (String(room.title || '').startsWith('卧底晋级赛')) {
       return json({ success: false, message: '闯关模式不能直接揭晓身份' }, 400);
     }
