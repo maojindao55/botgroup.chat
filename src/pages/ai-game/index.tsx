@@ -183,36 +183,24 @@ function VoteRecord({
   );
 }
 
-function IdentityRevealList({
-  players,
-  currentPlayerId,
+function EliminatedIdentityRecord({
+  player,
   isUndercoverMode,
 }: {
-  players: GamePlayer[];
-  currentPlayerId?: string;
+  player: GamePlayer;
   isUndercoverMode: boolean;
 }) {
+  const avatar = getAvatarData(player.display_name);
+  const roleLabel = getPlayerRoleLabel({ player, isUndercoverMode });
+
   return (
-    <div className="grid grid-cols-2 gap-1.5">
-      {players.map((player) => {
-        const meta = parseUndercoverMeta(player.ai_persona);
-        const isUndercover = isUndercoverMode && meta?.role === 'undercover';
-        const isAi = !isUndercoverMode && player.secret_role === 'ai';
-        const roleLabel = isUndercoverMode ? (isUndercover ? '卧底' : '平民') : (isAi ? 'AI' : '真人');
-        const avatar = getAvatarData(player.display_name);
-        return (
-          <div key={player.id} className={`flex min-w-0 items-center gap-1.5 rounded-md bg-white/70 px-2 py-1.5 text-xs dark:bg-black/20 ${player.eliminated_at ? 'opacity-75' : ''}`}>
-            <Avatar className="h-5 w-5 flex-none">
-              <AvatarFallback style={{ backgroundColor: avatar.backgroundColor, color: 'white', fontSize: 10 }}>{player.display_name[0]}</AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1 truncate">
-              <span className={player.eliminated_at ? 'line-through' : ''}>{player.display_name}</span>
-              {player.id === currentPlayerId && <span className="ml-0.5 text-muted-foreground">你</span>}
-            </div>
-            <VoteRoleBadge label={roleLabel} />
-          </div>
-        );
-      })}
+    <div className="flex min-w-0 items-center gap-1.5 text-xs">
+      <span className="flex-none rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-red-700 dark:bg-red-950/40 dark:text-red-400">已出局</span>
+      <Avatar className="h-5 w-5 flex-none opacity-50 grayscale">
+        <AvatarFallback style={{ backgroundColor: avatar.backgroundColor, color: 'white', fontSize: 10 }}>{player.display_name[0]}</AvatarFallback>
+      </Avatar>
+      <span className="min-w-0 truncate font-medium text-muted-foreground line-through">{player.display_name}</span>
+      <VoteRoleBadge label={roleLabel} />
     </div>
   );
 }
@@ -1698,12 +1686,14 @@ function AiGameRoom() {
 
                     if (isGameOver) {
                       const { votes: votePairs, eliminatedName, resultLines } = parseVoteResultMessage(message.content);
+                      const visibleVoteNames = new Set(votePairs.flatMap(pair => [pair.voter, pair.target]));
+                      const priorEliminatedPlayers = candidatePlayers.filter(player => player.eliminated_at && !visibleVoteNames.has(player.display_name));
                       return (
                         <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
                           <div className="mx-auto max-w-sm rounded-xl border-2 border-[#c2410c]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#c2410c]/30">
                             <Trophy className="mx-auto mb-2 h-6 w-6 text-[#c2410c]" />
                             <div className="text-center text-sm font-semibold text-foreground">游戏结束</div>
-                            {votePairs.length > 0 && (
+                            {(votePairs.length > 0 || priorEliminatedPlayers.length > 0) && (
                               <div className="mt-3 space-y-1.5 rounded-lg bg-white/60 p-2 dark:bg-black/20">
                                 {votePairs.map((pair, i) => {
                                   const voter = candidatePlayers.find(player => player.display_name === pair.voter);
@@ -1719,16 +1709,15 @@ function AiGameRoom() {
                                     />
                                   );
                                 })}
+                                {priorEliminatedPlayers.map(player => (
+                                  <EliminatedIdentityRecord
+                                    key={player.id}
+                                    player={player}
+                                    isUndercoverMode={isUndercoverMode}
+                                  />
+                                ))}
                               </div>
                             )}
-                            <div className="mt-3 rounded-lg bg-white/60 p-2 dark:bg-black/20">
-                              <div className="mb-1.5 text-center text-xs font-semibold text-[#c2410c]">完整身份</div>
-                              <IdentityRevealList
-                                players={candidatePlayers}
-                                currentPlayerId={currentPlayer?.id}
-                                isUndercoverMode={isUndercoverMode}
-                              />
-                            </div>
                             {resultLines.length > 0 && (
                               <div className="mt-2 space-y-0.5 text-xs text-muted-foreground leading-relaxed text-center">
                                 {resultLines.map((line, i) => (
