@@ -1,6 +1,7 @@
 import { encodeUndercoverMeta, getDynamicUndercoverPair, getJuryRoles, getPlayers, getRoom, json, pickAiName, pickJuryCase, pickPersona, pickUndercoverPair } from '../../utils/aiGame';
 import { isCampaignRoom, resolveCampaignWordTier } from '../../utils/aiGameCampaign';
 import { canControlAiGameRoom } from '../../utils/aiGamePermission';
+import { normalizeUndercoverCount, pickUndercoverIndexes } from '../../utils/aiGameUndercoverRules';
 
 interface Env {
   bgdb: D1Database;
@@ -48,10 +49,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       const [civilianWord, undercoverWord] = isCampaignRoom(room)
         ? await getDynamicUndercoverPair(db, context.env, { roomId, tier, seed: `${room.title}:${roomId}` })
         : pickUndercoverPair(roomId);
-      const undercoverIndex = [...roomId].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % allCandidates.length;
+      const undercoverCount = normalizeUndercoverCount(room.undercover_count, allCandidates.length);
+      const undercoverIndexes = pickUndercoverIndexes(roomId, allCandidates.length, undercoverCount);
       for (let i = 0; i < allCandidates.length; i++) {
         const player = allCandidates[i];
-        const role = i === undercoverIndex ? 'undercover' : 'civilian';
+        const role = undercoverIndexes.includes(i) ? 'undercover' : 'civilian';
         const word = role === 'undercover' ? undercoverWord : civilianWord;
         await db.prepare(
           `UPDATE ai_game_players SET ai_persona = ? WHERE id = ?`
@@ -106,7 +108,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)
        VALUES (?, 'system', '系统', 'system', ?, CURRENT_TIMESTAMP)`
     ).bind(roomId, room.mode === 'undercover'
-      ? `游戏开始。每个人已拿到自己的词。请依次描述，不能直接说出词语本身。`
+      ? `游戏开始。本局有 ${normalizeUndercoverCount(room.undercover_count, candidateCount)} 名卧底，每个人已拿到自己的词。请依次描述，不能直接说出词语本身。`
       : room.mode === 'jury'
       ? `开庭。本案指控：${pickJuryCase(roomId)} 被告可以陈述事实、狡辩或甩锅。`
       : room.mode === 'solo'

@@ -1,5 +1,6 @@
 import { defaultsForMode, ensurePlayerHeartbeat, getPlayers, getRoom, json, normalizeGameMode, parseUndercoverMeta, publicRoomFields } from '../../utils/aiGame';
 import { isCampaignRoom, normalizeCampaignWordTier } from '../../utils/aiGameCampaign';
+import { normalizeUndercoverCount } from '../../utils/aiGameUndercoverRules';
 
 interface Env {
   bgdb: D1Database;
@@ -49,6 +50,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       displayName?: string;
       wordTier?: string;
       campaignLevel?: number;
+      undercoverCount?: number;
     };
     const mode = normalizeGameMode(body.mode);
     const defaults = defaultsForMode(mode);
@@ -61,11 +63,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const campaignLevel = Math.max(0, Math.floor(Number(body.campaignLevel) || 0)) || null;
     const campaignRoom = isCampaignRoom({ mode, title: rawTitle, campaign_level: campaignLevel });
     const wordTier = campaignRoom ? normalizeCampaignWordTier(body.wordTier) : null;
+    const undercoverCount = mode === 'undercover' ? normalizeUndercoverCount(body.undercoverCount, maxPlayers) : 1;
 
     await db.prepare(
       `INSERT INTO ai_game_rooms (${publicRoomFields})
-       VALUES (?, ?, 'waiting', ?, ?, ?, ?, 50, ?, NULL, NULL, CURRENT_TIMESTAMP, ?, ?)`
-    ).bind(roomId, mode, rawTitle, maxPlayers, aiCount, durationSeconds, userId, wordTier, campaignLevel).run();
+       VALUES (?, ?, 'waiting', ?, ?, ?, ?, 50, ?, NULL, NULL, CURRENT_TIMESTAMP, ?, ?, ?)`
+    ).bind(roomId, mode, rawTitle, maxPlayers, aiCount, durationSeconds, userId, wordTier, campaignLevel, undercoverCount).run();
 
     return json({ success: true, data: { roomId } });
   } catch (error: any) {

@@ -34,6 +34,7 @@ export interface AiGameCampaignLevel {
   durationSeconds: number;
   difficulty: number;
   wordTier: 'obvious' | 'close' | 'contextual' | 'abstract';
+  undercoverCount: 1 | 2;
   objective: string;
   modifier: string;
 }
@@ -88,7 +89,13 @@ function getCampaignWordTier(level: number): AiGameCampaignLevel['wordTier'] {
   return 'abstract';
 }
 
-function getCampaignDescription(level: number, title: string, wordTier: AiGameCampaignLevel['wordTier']) {
+function getCampaignUndercoverCount(level: number): 1 | 2 {
+  if (level < 21) return 1;
+  return (level - 21) % 7 === 0 ? 2 : 1;
+}
+
+function getCampaignDescription(level: number, title: string, wordTier: AiGameCampaignLevel['wordTier'], undercoverCount: 1 | 2) {
+  if (undercoverCount === 2) return '双卧底特殊关，平民要找出两名卧底；如果你是卧底，要保护自己和同伴。';
   if (level === 1) return '词语差异比较大，先学会观察谁的描述方向不对。';
   if (level === 2) return '卧底会附和别人，重点看谁只重复、不补细节。';
   if (level === 3) return '平民词和卧底词接近，模糊描述会更有迷惑性。';
@@ -109,10 +116,13 @@ export function generateCampaignLevel(levelNumber: number): AiGameCampaignLevel 
   const level = Math.max(1, Math.floor(Number(levelNumber) || 1));
   const difficulty = Math.min(10, 1 + Math.floor((level - 1) / 5));
   const wordTier = getCampaignWordTier(level);
+  const undercoverCount = getCampaignUndercoverCount(level);
   const titleBase = campaignTitlePool[(level - 1) % campaignTitlePool.length];
   const modifier = campaignModifierPool[(level - 1) % campaignModifierPool.length];
-  const title = level <= 6 ? titleBase : `${titleBase} ${level}`;
-  const maxPlayers = level <= 1 ? 4 : level <= 2 ? 5 : level <= 30 ? 6 : 7;
+  const title = undercoverCount === 2
+    ? `双影局 ${level}`
+    : level <= 6 ? titleBase : `${titleBase} ${level}`;
+  const maxPlayers = undercoverCount === 2 ? 7 : level <= 1 ? 4 : level <= 2 ? 5 : level <= 30 ? 6 : 7;
   const durationSeconds = Math.max(150, 270 - Math.floor((level - 1) / 4) * 10);
 
   return {
@@ -120,14 +130,15 @@ export function generateCampaignLevel(levelNumber: number): AiGameCampaignLevel 
     levelNumber: level,
     chapter: getCampaignChapter(level),
     title,
-    description: getCampaignDescription(level, titleBase, wordTier),
+    description: getCampaignDescription(level, titleBase, wordTier, undercoverCount),
     maxPlayers,
     aiCount: maxPlayers - 1,
     durationSeconds,
     difficulty,
     wordTier,
-    objective: campaignObjectives[(level - 1) % campaignObjectives.length],
-    modifier,
+    undercoverCount,
+    objective: undercoverCount === 2 ? '找出两名拿到不同词语的卧底。' : campaignObjectives[(level - 1) % campaignObjectives.length],
+    modifier: undercoverCount === 2 ? '双卧底同词局' : modifier,
   };
 }
 

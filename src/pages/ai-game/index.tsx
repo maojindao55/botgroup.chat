@@ -92,6 +92,10 @@ function formatCountdown(seconds: number) {
   return `${minutes}:${String(restSeconds).padStart(2, '0')}`;
 }
 
+function resultStars(result?: GameResult | null) {
+  return Math.max(0, Math.min(3, Math.round(Number(result?.human_accuracy || 0) * 3)));
+}
+
 function extractUndercoverWordPair(summary?: string | null) {
   const match = summary?.match(/平民词是「(.+?)」，卧底词是「(.+?)」/);
   return match ? { civilianWord: match[1], undercoverWord: match[2] } : null;
@@ -179,6 +183,40 @@ function VoteRecord({
   );
 }
 
+function IdentityRevealList({
+  players,
+  currentPlayerId,
+  isUndercoverMode,
+}: {
+  players: GamePlayer[];
+  currentPlayerId?: string;
+  isUndercoverMode: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-1.5">
+      {players.map((player) => {
+        const meta = parseUndercoverMeta(player.ai_persona);
+        const isUndercover = isUndercoverMode && meta?.role === 'undercover';
+        const isAi = !isUndercoverMode && player.secret_role === 'ai';
+        const roleLabel = isUndercoverMode ? (isUndercover ? '卧底' : '平民') : (isAi ? 'AI' : '真人');
+        const avatar = getAvatarData(player.display_name);
+        return (
+          <div key={player.id} className={`flex min-w-0 items-center gap-1.5 rounded-md bg-white/70 px-2 py-1.5 text-xs dark:bg-black/20 ${player.eliminated_at ? 'opacity-75' : ''}`}>
+            <Avatar className="h-5 w-5 flex-none">
+              <AvatarFallback style={{ backgroundColor: avatar.backgroundColor, color: 'white', fontSize: 10 }}>{player.display_name[0]}</AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1 truncate">
+              <span className={player.eliminated_at ? 'line-through' : ''}>{player.display_name}</span>
+              {player.id === currentPlayerId && <span className="ml-0.5 text-muted-foreground">你</span>}
+            </div>
+            <VoteRoleBadge label={roleLabel} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function AiGameShareDialog({
   open,
   onOpenChange,
@@ -200,7 +238,8 @@ function AiGameShareDialog({
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const wordPair = extractUndercoverWordPair(result?.summary);
-  const guessedRight = Number(result?.human_accuracy) === 1;
+  const stars = resultStars(result);
+  const guessedRight = stars > 0;
   const title = campaignLevel ? `卧底晋级赛 第 ${campaignLevel.levelNumber} 关` : room.title.replace(/\s*\[tier:[^\]]+\]/, '');
   const verdict = guessedRight ? '一票抓住破绽' : '这局被带偏了';
   const roleText = currentPlayerSecret?.role === 'undercover' ? '卧底' : currentPlayerSecret?.role ? '平民' : '玩家';
@@ -270,7 +309,7 @@ function AiGameShareDialog({
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-md bg-white p-2">
                   <div className="text-[11px] text-zinc-500">结果</div>
-                  <div className="mt-1 text-sm font-semibold">{guessedRight ? '猜中' : '猜错'}</div>
+                  <div className="mt-1 text-sm font-semibold">{guessedRight ? '成功' : '失败'}</div>
                 </div>
                 <div className="rounded-md bg-white p-2">
                   <div className="text-[11px] text-zinc-500">身份</div>
@@ -613,8 +652,8 @@ function GameControlPanel({
             {isUndercoverMode && !isObserver && (
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg bg-muted p-3">
-                  <div className="text-xs text-muted-foreground">你的判断</div>
-                  <div className="mt-1 text-lg font-semibold">{Number(result?.human_accuracy) === 1 ? '猜中' : '猜错'}</div>
+                  <div className="text-xs text-muted-foreground">闯关结果</div>
+                  <div className="mt-1 text-lg font-semibold">{resultStars(result) > 0 ? '成功' : '失败'}</div>
                 </div>
                 <div className="rounded-lg bg-muted p-3">
                   <div className="text-xs text-muted-foreground">你的身份</div>
@@ -725,7 +764,7 @@ function MobileActionCard({
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <span className="text-xs font-medium">{isUndercoverMode
-              ? (Number(result?.human_accuracy) === 1 ? '✅ 猜中卧底' : '❌ 猜错了')
+              ? (resultStars(result) > 0 ? '✅ 闯关成功' : '❌ 闯关失败')
               : isJuryMode ? '已宣判' : '身份揭晓'}</span>
           </div>
           {!isObserver && (
@@ -969,6 +1008,7 @@ function AiGameHome() {
           durationSeconds: level.durationSeconds,
           wordTier: level.wordTier,
           campaignLevel: level.levelNumber,
+          undercoverCount: level.undercoverCount,
         }),
       });
       const roomData = await roomRes.json();
@@ -1116,7 +1156,7 @@ function AiGameHome() {
                   <p className="mt-1 line-clamp-2 min-h-10 text-xs text-muted-foreground">{level.description}</p>
                   <div className="mt-3 flex items-center justify-between text-xs">
                     <span className="rounded-md bg-muted px-2 py-1">难度 {level.difficulty}</span>
-                    <span className="text-muted-foreground">{level.maxPlayers} 人 · {Math.round(level.durationSeconds / 60)} 分钟</span>
+                    <span className="text-muted-foreground">{level.maxPlayers} 人 · {level.undercoverCount} 卧底 · {Math.round(level.durationSeconds / 60)} 分钟</span>
                   </div>
                   <div className="mt-2 truncate text-xs text-[#c2410c]">{level.modifier}</div>
                 </button>
@@ -1324,7 +1364,7 @@ function AiGameRoom() {
 
   useEffect(() => {
     if (!campaignLevel || !result || (room?.status !== 'revealed' && room?.status !== 'archived')) return;
-    const stars = Number(result.human_accuracy) === 1 ? 3 : 0;
+    const stars = resultStars(result);
     if (stars <= 0) return;
     const progress = loadCampaignProgress();
     const levelKey = String(campaignLevel.levelNumber);
@@ -1489,6 +1529,7 @@ function AiGameRoom() {
           durationSeconds: level.durationSeconds,
           wordTier: level.wordTier,
           campaignLevel: level.levelNumber,
+          undercoverCount: level.undercoverCount,
         }),
       });
       const roomData = await roomRes.json();
@@ -1577,7 +1618,7 @@ function AiGameRoom() {
     voteHint,
   };
   const nextCampaignLevel = campaignLevel ? generateCampaignLevel(campaignLevel.levelNumber + 1) : undefined;
-  const campaignStars = campaignLevel && result && revealed && Number(result.human_accuracy) === 1 ? 3 : 0;
+  const campaignStars = campaignLevel && result && revealed ? resultStars(result) : 0;
   const challengeUrl = typeof window !== 'undefined'
     ? buildAiGameChallengeUrl(window.location.href, campaignLevel?.levelNumber)
     : '';
@@ -1680,6 +1721,14 @@ function AiGameRoom() {
                                 })}
                               </div>
                             )}
+                            <div className="mt-3 rounded-lg bg-white/60 p-2 dark:bg-black/20">
+                              <div className="mb-1.5 text-center text-xs font-semibold text-[#c2410c]">完整身份</div>
+                              <IdentityRevealList
+                                players={candidatePlayers}
+                                currentPlayerId={currentPlayer?.id}
+                                isUndercoverMode={isUndercoverMode}
+                              />
+                            </div>
                             {resultLines.length > 0 && (
                               <div className="mt-2 space-y-0.5 text-xs text-muted-foreground leading-relaxed text-center">
                                 {resultLines.map((line, i) => (

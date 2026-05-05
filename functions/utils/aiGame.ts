@@ -11,7 +11,7 @@ export const json = (data: unknown, status = 200) => new Response(JSON.stringify
 export const publicRoomFields = `
   id, mode, status, title, max_players, ai_count, duration_seconds,
   message_limit, created_by, started_at, ended_at, created_at,
-  word_tier, campaign_level
+  word_tier, campaign_level, undercover_count
 `;
 
 const personas = [

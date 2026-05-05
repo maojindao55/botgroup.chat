@@ -1,5 +1,7 @@
 import { generateUndercoverVote, getPlayers, getRoom, json, parseUndercoverMeta } from '../../utils/aiGame';
+import { calculateCampaignStars } from '../../utils/aiGameCampaignResult';
 import { isCampaignRoom } from '../../utils/aiGameCampaign';
+import { evaluateUndercoverRound, isPlayerVoteDirectionCorrect } from '../../utils/aiGameUndercoverRules';
 import { canSubmitUndercoverVoteThisRound } from '../../utils/aiGameVoteFlow';
 
 interface Env {
@@ -137,8 +139,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const humanPlayer = activePlayers.find((player: any) => player.player_type === 'human');
         const humanMeta = parseUndercoverMeta(humanPlayer?.ai_persona);
         const remainingAfterElimination = activePlayers.filter((player: any) => player.id !== eliminated?.id);
-        const undercoverStillActive = remainingAfterElimination.some((player: any) => parseUndercoverMeta(player.ai_persona)?.role === 'undercover');
-        const gameOver = !eliminated || eliminatedMeta?.role === 'undercover' || eliminated?.id === humanPlayer?.id || remainingAfterElimination.length <= 3 || !undercoverStillActive;
+        const roundState = evaluateUndercoverRound({
+          eliminatedRole: eliminatedMeta?.role,
+          eliminatedIsHuman: eliminated?.id === humanPlayer?.id,
+          remainingRoles: remainingAfterElimination.map((player: any) => parseUndercoverMeta(player.ai_persona)?.role),
+        });
+        const gameOver = !eliminated || roundState.gameOver;
 
         if (eliminated) {
           await db.prepare(`UPDATE ai_game_players SET eliminated_at = CURRENT_TIMESTAMP WHERE id = ?`)
@@ -154,22 +160,43 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         ).bind(roomId, roundMessage).run();
 
         if (gameOver) {
-          const undercover = players.find((player: any) => parseUndercoverMeta(player.ai_persona)?.role === 'undercover');
+          const undercovers = players.filter((player: any) => parseUndercoverMeta(player.ai_persona)?.role === 'undercover');
+          const undercover = undercovers[0];
           const pair = parseUndercoverMeta(undercover?.ai_persona);
           const humanTargetMeta = parseUndercoverMeta(humanTarget?.ai_persona);
-          const playerGuessCorrect = humanMeta?.role === 'undercover'
-            ? humanTarget?.id !== humanPlayer?.id && humanTargetMeta?.role === 'civilian'
-            : humanTargetMeta?.role === 'undercover';
-          const groupSucceeded = humanMeta?.role === 'undercover'
-            ? eliminated?.id !== humanPlayer?.id && eliminatedMeta?.role === 'civilian'
-            : eliminatedMeta?.role === 'undercover';
+          const playerGuessCorrect = isPlayerVoteDirectionCorrect(humanMeta?.role, humanTargetMeta?.role);
+          const groupSucceeded = humanMeta?.role === 'undercover' ? roundState.undercoverWin : roundState.civilianWin;
+          const campaignRoom = isCampaignRoom(room);
+          const secondsUsedRow = campaignRoom
+            ? await db.prepare(
+              `SELECT CAST((julianday(CURRENT_TIMESTAMP) - julianday(started_at)) * 86400 AS INTEGER) as seconds_used
+               FROM ai_game_rooms WHERE id = ?`
+            ).bind(roomId).first()
+            : null;
+          const campaignStars = campaignRoom
+            ? calculateCampaignStars({
+              playerGuessCorrect,
+              groupSucceeded,
+              humanRole: humanMeta?.role,
+              eliminatedRole: eliminatedMeta?.role,
+              eliminatedIsHuman: eliminated?.id === humanPlayer?.id,
+              remainingCount: remainingAfterElimination.length,
+              durationSeconds: Number(room.duration_seconds || 0),
+              secondsUsed: Number(secondsUsedRow?.seconds_used || room.duration_seconds || 0),
+            })
+            : (playerGuessCorrect ? 3 : 0);
+          const resultAccuracy = campaignRoom ? campaignStars / 3 : (playerGuessCorrect ? 1 : 0);
           const wordRevealText = `平民词是「${pair?.civilianWord || ''}」，卧底词是「${pair?.undercoverWord || ''}」。`;
+          const campaignResultText = campaignRoom
+            ? `闯关${campaignStars > 0 ? `成功，获得 ${campaignStars} 星` : '失败'}。`
+            : '';
+          const undercoverNames = undercovers.map((player: any) => player.display_name).join('、') || '未知';
           const summary = humanMeta?.role === 'undercover'
-            ? `你是卧底，词语是「${humanMeta.word}」。你投给了 ${humanTarget?.display_name || '未知'}（${humanTargetMeta?.role === 'undercover' ? '卧底' : '平民'}），${playerGuessCorrect ? '这次甩锅方向是对的' : '这票没有成功甩到平民身上'}。多数票投出 ${eliminated?.display_name || '未知'}（${eliminatedMeta?.role === 'undercover' ? '卧底' : '平民'}），${groupSucceeded ? '群体被你带偏，卧底获胜' : '群体没有被带偏，卧底失败'}。${wordRevealText}`
-            : `你是平民，词语是「${humanMeta?.word || ''}」。你投给了 ${humanTarget?.display_name || '未知'}（${humanTargetMeta?.role === 'undercover' ? '卧底' : '平民'}），${playerGuessCorrect ? '你的个人判断正确' : '你的个人判断错误'}。多数票投出 ${eliminated?.display_name || '未知'}（${eliminatedMeta?.role === 'undercover' ? '卧底' : '平民'}），${groupSucceeded ? '群体成功找出卧底' : `群体被带偏，真正的卧底是 ${undercover?.display_name || '未知'}`}。${wordRevealText}`;
+            ? `${campaignResultText}你是卧底，词语是「${humanMeta.word}」。你投给了 ${humanTarget?.display_name || '未知'}（${humanTargetMeta?.role === 'undercover' ? '卧底' : '平民'}），${playerGuessCorrect ? '这次甩锅方向是对的' : '这票没有成功甩到平民身上'}。多数票投出 ${eliminated?.display_name || '未知'}（${eliminatedMeta?.role === 'undercover' ? '卧底' : '平民'}），${groupSucceeded ? '群体被你带偏，卧底获胜' : '群体没有被带偏，卧底失败'}。${wordRevealText}`
+            : `${campaignResultText}你是平民，词语是「${humanMeta?.word || ''}」。你投给了 ${humanTarget?.display_name || '未知'}（${humanTargetMeta?.role === 'undercover' ? '卧底' : '平民'}），${playerGuessCorrect ? '你的个人判断正确' : '你的个人判断错误'}。多数票投出 ${eliminated?.display_name || '未知'}（${eliminatedMeta?.role === 'undercover' ? '卧底' : '平民'}），${groupSucceeded ? '群体成功找出卧底' : `群体被带偏，真正的卧底是 ${undercoverNames}`}。${wordRevealText}`;
           const shareText = playerGuessCorrect
             ? `我在谁是卧底里个人判断猜中了${humanMeta?.role === 'undercover' ? '甩锅对象' : '卧底'}，平民词「${pair?.civilianWord || ''}」，卧底词「${pair?.undercoverWord || ''}」。`
-            : `我在谁是卧底里个人判断猜错了，真正卧底是${undercover?.display_name || '未知'}。`;
+            : `我在谁是卧底里个人判断猜错了，真正卧底是${undercoverNames}。`;
           await db.prepare(
             `INSERT INTO ai_game_results (room_id, human_accuracy, ai_escape_rate, best_disguised_player_id, summary, share_text, created_at)
              VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -179,7 +206,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                best_disguised_player_id = excluded.best_disguised_player_id,
                summary = excluded.summary,
                share_text = excluded.share_text`
-          ).bind(roomId, playerGuessCorrect ? 1 : 0, groupSucceeded ? 0 : 1, undercover?.id || null, summary, shareText).run();
+          ).bind(roomId, resultAccuracy, groupSucceeded ? 0 : 1, undercover?.id || null, summary, shareText).run();
           await db.prepare(`UPDATE ai_game_rooms SET status = 'revealed', ended_at = CURRENT_TIMESTAMP WHERE id = ?`)
             .bind(roomId).run();
         }

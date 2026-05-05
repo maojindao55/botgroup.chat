@@ -14,6 +14,7 @@ export interface GameRoomData {
   created_at: string;
   word_tier?: 'obvious' | 'close' | 'contextual' | 'abstract' | null;
   campaign_level?: number | null;
+  undercover_count?: number | null;
 }
 
 export interface GamePlayer {
