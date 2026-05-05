@@ -1232,6 +1232,10 @@ function AiGameRoom() {
     const ownMessages = messages.filter(message => message.player_id === playerId && message.sender_type === 'human');
     return ownMessages.length ? ownMessages[ownMessages.length - 1].id : 0;
   }, [messages, playerId]);
+  const aiMessagesAfterOwnDescriptionCount = useMemo(() => {
+    if (!latestOwnDescriptionId) return 0;
+    return messages.filter(message => message.sender_type === 'ai' && message.id > latestOwnDescriptionId).length;
+  }, [latestOwnDescriptionId, messages]);
   const campaignLevel = useMemo(() => {
     const levelNumber = Number(campaignLevelId.replace(/^u/, ''));
     return Number.isFinite(levelNumber) && levelNumber > 0 ? generateCampaignLevel(levelNumber) : null;
@@ -1521,12 +1525,18 @@ function AiGameRoom() {
   const currentPlayerEliminated = !!currentPlayer?.eliminated_at;
   const isParticipant = !!currentPlayer && !isObserver;
   const campaignTimedOut = !!campaignLevel && !revealed && room.status === 'playing' && secondsLeft <= 0;
-  const needsNewDescriptionBeforeVote = isUndercoverMode && latestUndercoverVoteResultId > 0 && latestOwnDescriptionId < latestUndercoverVoteResultId;
-  const canVote = isParticipant && !currentPlayerEliminated && (currentStatus === 'playing' || currentStatus === 'voting') && !revealed && !needsNewDescriptionBeforeVote && !campaignTimedOut;
+  const activeAiCount = activeCandidatePlayers.filter(player => player.player_type === 'ai').length;
+  const needsDescriptionBeforeVote = isUndercoverMode && latestOwnDescriptionId <= latestUndercoverVoteResultId;
+  const needsAiRoundBeforeVote = isUndercoverMode && !needsDescriptionBeforeVote && aiMessagesAfterOwnDescriptionCount < Math.max(1, activeAiCount);
+  const canVote = isParticipant && !currentPlayerEliminated && (currentStatus === 'playing' || currentStatus === 'voting') && !revealed && !needsDescriptionBeforeVote && !needsAiRoundBeforeVote && !campaignTimedOut;
   const canSpeak = isParticipant && !currentPlayerEliminated && currentStatus === 'playing' && !campaignTimedOut;
   const canReveal = isParticipant && !campaignLevel && !campaignTimedOut;
   const canGuess = canVote && !isJuryMode;
-  const voteHint = needsNewDescriptionBeforeVote ? '上一轮已完成投票，请先继续描述后再投下一轮。' : undefined;
+  const voteHint = needsDescriptionBeforeVote
+    ? (latestUndercoverVoteResultId > 0 ? '上一轮已完成投票，请先继续描述或追问后再投下一轮。' : '先描述你的词或追问一次，再进行投票。')
+    : needsAiRoundBeforeVote
+      ? '请等 AI 完成本轮描述后再投票。'
+      : undefined;
   const statusText = (() => {
     if (campaignTimedOut) return '挑战失败';
     if (revealed) return isJuryMode ? '已宣判' : '已揭晓';

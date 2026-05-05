@@ -1,5 +1,6 @@
 import { generateUndercoverVote, getPlayers, getRoom, json, parseUndercoverMeta } from '../../utils/aiGame';
 import { isCampaignRoom } from '../../utils/aiGameCampaign';
+import { canSubmitUndercoverVoteThisRound } from '../../utils/aiGameVoteFlow';
 
 interface Env {
   bgdb: D1Database;
@@ -38,20 +39,41 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (target.eliminated_at) return json({ success: false, message: '不能投已出局玩家' }, 400);
 
     if (room.mode === 'undercover') {
+      const activeAiCountRow = await db.prepare(
+        `SELECT COUNT(*) as count FROM ai_game_players
+         WHERE room_id = ? AND player_type = 'ai' AND eliminated_at IS NULL`
+      ).bind(roomId).first();
       const latestVoteResult = await db.prepare(
         `SELECT id FROM ai_game_messages
          WHERE room_id = ? AND sender_type = 'system' AND content LIKE '投票完成%'
          ORDER BY id DESC LIMIT 1`
       ).bind(roomId).first();
-      if (latestVoteResult?.id) {
-        const latestVoterMessage = await db.prepare(
-          `SELECT id FROM ai_game_messages
-           WHERE room_id = ? AND player_id = ? AND sender_type = 'human'
-           ORDER BY id DESC LIMIT 1`
-        ).bind(roomId, voterPlayerId).first();
-        if (!latestVoterMessage?.id || Number(latestVoterMessage.id) < Number(latestVoteResult.id)) {
-          return json({ success: false, message: '本轮已经投过票，请先继续描述后再投下一轮' }, 400);
-        }
+      const latestVoterMessage = await db.prepare(
+        `SELECT id FROM ai_game_messages
+         WHERE room_id = ? AND player_id = ? AND sender_type = 'human'
+         ORDER BY id DESC LIMIT 1`
+      ).bind(roomId, voterPlayerId).first();
+      const aiMessagesAfterHuman = latestVoterMessage?.id
+        ? await db.prepare(
+          `SELECT COUNT(*) as count FROM ai_game_messages
+           WHERE room_id = ? AND sender_type = 'ai' AND id > ?`
+        ).bind(roomId, latestVoterMessage.id).first()
+        : null;
+
+      const voteFlow = canSubmitUndercoverVoteThisRound({
+        latestVoteResultId: Number(latestVoteResult?.id || 0),
+        latestHumanMessageId: Number(latestVoterMessage?.id || 0),
+        aiMessagesAfterHuman: Number(aiMessagesAfterHuman?.count || 0),
+        activeAiCount: Number(activeAiCountRow?.count || 0),
+      });
+
+      if (!voteFlow.allowed) {
+        return json({
+          success: false,
+          message: voteFlow.reason === 'needs-human-message'
+            ? '请先描述你的词或追问一次，再进行投票'
+            : '请等 AI 完成本轮描述后再投票',
+        }, 400);
       }
 
       await db.prepare(`DELETE FROM ai_game_votes WHERE room_id = ?`).bind(roomId).run();
