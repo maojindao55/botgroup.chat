@@ -310,19 +310,28 @@ function GameControlPanel({
         {campaignTimedOut && (
           <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
             本关已超时，挑战失败。身份不会揭晓，可以重玩本关。
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <Button variant="outline" size="sm" onClick={onNewGame}>
-                返回地图
-              </Button>
-              <Button size="sm" onClick={onReplay || onNewGame} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
-                重玩本关
-              </Button>
-            </div>
+            {!isObserver && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button variant="outline" size="sm" onClick={onNewGame}>
+                  返回地图
+                </Button>
+                <Button size="sm" onClick={onReplay || onNewGame} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                  重玩本关
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
         {room.status === 'waiting' && (
           <div className="space-y-3">
+            {isObserver ? (
+              <div className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                <div className="font-medium text-foreground">围观中</div>
+                <div className="mt-1">房主开始后会自动进入观看，本模式不能操作房间。</div>
+              </div>
+            ) : (
+              <>
             {!compact && (
               <div className="rounded-lg bg-muted p-3">
                 <div className="mb-2 text-sm font-medium">本局规则</div>
@@ -350,6 +359,8 @@ function GameControlPanel({
               <Copy className="mr-2 h-4 w-4" />
               复制房间 ID
             </Button>
+              </>
+            )}
           </div>
         )}
 
@@ -446,7 +457,7 @@ function GameControlPanel({
                 </div>
               </div>
             )}
-            {isUndercoverMode && (
+            {isUndercoverMode && !isObserver && (
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg bg-muted p-3">
                   <div className="text-xs text-muted-foreground">你的判断</div>
@@ -461,15 +472,19 @@ function GameControlPanel({
             <div className="rounded-lg bg-muted p-3 text-sm">
               {result?.summary || (isJuryMode ? '本案已经宣判。' : '本局已经揭晓。')}
             </div>
-            <Button onClick={onCopyShare} className="w-full">
-              {copied ? <Check className="mr-2 h-4 w-4" /> : <Share2 className="mr-2 h-4 w-4" />}
-              复制战绩
-            </Button>
-            {!onReplay && (
-              <Button onClick={onNewGame} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
-                <Play className="mr-2 h-4 w-4" />
-                再来一局
-              </Button>
+            {!isObserver && (
+              <>
+                <Button onClick={onCopyShare} className="w-full">
+                  {copied ? <Check className="mr-2 h-4 w-4" /> : <Share2 className="mr-2 h-4 w-4" />}
+                  复制战绩
+                </Button>
+                {!onReplay && (
+                  <Button onClick={onNewGame} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                    <Play className="mr-2 h-4 w-4" />
+                    再来一局
+                  </Button>
+                )}
+              </>
             )}
           </div>
         )}
@@ -515,6 +530,15 @@ function MobileActionCard({
   const showVotePicker = (voteOpen || effectiveStatus === 'voting') && canGuess && !revealed;
 
   if (room.status === 'waiting') {
+    if (isObserver) {
+      return (
+        <div className="rounded-lg border bg-card p-3 shadow-sm md:hidden">
+          <div className="text-sm font-medium">围观中</div>
+          <div className="mt-1 text-xs text-muted-foreground">房主开始后会自动进入观看，本模式不能操作房间。</div>
+        </div>
+      );
+    }
+
     return (
       <div className="rounded-lg border bg-card p-3 shadow-sm md:hidden">
         <div className="flex items-center justify-between gap-3">
@@ -549,18 +573,20 @@ function MobileActionCard({
               ? (Number(result?.human_accuracy) === 1 ? '✅ 猜中卧底' : '❌ 猜错了')
               : isJuryMode ? '已宣判' : '身份揭晓'}</span>
           </div>
-          <div className="flex gap-1.5">
-            <Button size="sm" variant="outline" onClick={onCopyShare} className="h-7 px-2 text-xs">
-              {copied ? <Check className="mr-1 h-3 w-3" /> : <Share2 className="mr-1 h-3 w-3" />}
-              分享
-            </Button>
-            {!onReplay && (
-              <Button onClick={onNewGame} size="sm" className="h-7 bg-[#c2410c] px-2 text-xs text-white hover:bg-[#9a3412]">
-                <Play className="mr-1 h-3 w-3" />
-                再来一局
+          {!isObserver && (
+            <div className="flex gap-1.5">
+              <Button size="sm" variant="outline" onClick={onCopyShare} className="h-7 px-2 text-xs">
+                {copied ? <Check className="mr-1 h-3 w-3" /> : <Share2 className="mr-1 h-3 w-3" />}
+                分享
               </Button>
-            )}
-          </div>
+              {!onReplay && (
+                <Button onClick={onNewGame} size="sm" className="h-7 bg-[#c2410c] px-2 text-xs text-white hover:bg-[#9a3412]">
+                  <Play className="mr-1 h-3 w-3" />
+                  再来一局
+                </Button>
+              )}
+            </div>
+          )}
         </div>
         {wordPairMatch && (
           <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -578,14 +604,16 @@ function MobileActionCard({
       <div className="rounded-lg border border-red-200 bg-red-50 p-3 shadow-sm md:hidden dark:border-red-900/40 dark:bg-red-950/20">
         <div className="text-sm font-medium text-red-700 dark:text-red-300">挑战失败</div>
         <div className="mt-1 text-xs text-red-600 dark:text-red-300">本关已超时，身份不会揭晓。</div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <Button variant="outline" size="sm" onClick={onNewGame}>
-            返回地图
-          </Button>
-          <Button size="sm" onClick={onReplay || onNewGame} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
-            重玩本关
-          </Button>
-        </div>
+        {!isObserver && (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Button variant="outline" size="sm" onClick={onNewGame}>
+              返回地图
+            </Button>
+            <Button size="sm" onClick={onReplay || onNewGame} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+              重玩本关
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -689,6 +717,7 @@ function MobileActionCard({
 
 function AiGameHome() {
   const navigate = useNavigate();
+  const [homeSection, setHomeSection] = useState<'menu' | 'campaign' | 'practice'>('menu');
   const [mode, setMode] = useState(aiGameModes[0].id);
   const [name, setName] = useState(localStorage.getItem('ai-game-name') || '');
   const [roomId, setRoomId] = useState('');
@@ -803,13 +832,57 @@ function AiGameHome() {
     <div className="fixed inset-0 overflow-y-auto bg-background">
       <div className="mx-auto flex min-h-full max-w-5xl flex-col px-4 py-6 md:py-10">
         <div className="mb-6 flex items-center justify-between">
-          <Button variant="outline" onClick={() => navigate('/')}>返回群聊</Button>
+          <Button variant="outline" onClick={() => homeSection === 'menu' ? navigate('/') : setHomeSection('menu')}>
+            {homeSection === 'menu' ? '返回群聊' : '返回'}
+          </Button>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Bot className="h-4 w-4" />
             真人 AI 混聊局
           </div>
         </div>
 
+        {homeSection === 'menu' && (
+          <div className="grid flex-1 content-center gap-4 md:grid-cols-2">
+            <button
+              onClick={() => setHomeSection('campaign')}
+              className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm transition-colors hover:bg-accent"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Flag className="h-5 w-5 text-[#c2410c]" />
+                  <h1 className="text-xl font-semibold tracking-normal">卧底晋级赛</h1>
+                </div>
+                <div className="flex text-[#c2410c]">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <Star key={index} className="h-4 w-4 fill-current" />
+                  ))}
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground">逐关挑战谁是卧底，从明显破绽到高压反杀。</p>
+              <div className="mt-4 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+                <div className="font-medium text-foreground">本地进度</div>
+                <div className="mt-1">最高第 {campaignProgress.highestUnlockedLevel} 关 · 已通关 {clearedLevels} 关</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setHomeSection('practice')}
+              className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm transition-colors hover:bg-accent"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <Play className="h-5 w-5 text-[#c2410c]" />
+                <h1 className="text-xl font-semibold tracking-normal">自由练习</h1>
+              </div>
+              <p className="text-sm text-muted-foreground">不计入闯关进度，直接开一局当前玩法练手，也可以加入已有房间。</p>
+              <div className="mt-4 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+                <div className="font-medium text-foreground">当前玩法</div>
+                <div className="mt-1">{selectedMode.name} · {selectedMode.maxPlayers - selectedMode.aiCount} 真人 + {selectedMode.aiCount} AI</div>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {homeSection === 'campaign' && (
         <section className="mb-6 rounded-lg border bg-card p-4 shadow-sm md:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -860,7 +933,9 @@ function AiGameHome() {
             })}
           </div>
         </section>
+        )}
 
+        {homeSection === 'practice' && (
         <div className="grid gap-6 md:grid-cols-[1.1fr_0.9fr]">
           <section className="rounded-lg border bg-card p-5 shadow-sm">
             <div className="mb-5">
@@ -927,6 +1002,7 @@ function AiGameHome() {
             </div>
           </section>
         </div>
+        )}
       </div>
     </div>
   );
@@ -1481,20 +1557,22 @@ function AiGameRoom() {
                       <div className="rounded-lg bg-muted px-3 py-2 text-sm">
                         {campaignStars > 0 ? '通关成功，下一关已解锁。' : '这关还没通关，重玩一次调整发言和投票策略。'}
                       </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <Button variant="outline" size="sm" onClick={() => createCampaignRoomFromLevel(campaignLevel)} disabled={busy}>
-                          重玩
-                        </Button>
-                        {campaignStars > 0 && nextCampaignLevel ? (
-                          <Button size="sm" onClick={() => createCampaignRoomFromLevel(nextCampaignLevel)} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
-                            下一关
+                      {!isObserver && (
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <Button variant="outline" size="sm" onClick={() => createCampaignRoomFromLevel(campaignLevel)} disabled={busy}>
+                            重玩
                           </Button>
-                        ) : (
-                          <Button size="sm" onClick={() => navigate('/ai-game')} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
-                            返回地图
-                          </Button>
-                        )}
-                      </div>
+                          {campaignStars > 0 && nextCampaignLevel ? (
+                            <Button size="sm" onClick={() => createCampaignRoomFromLevel(nextCampaignLevel)} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                              下一关
+                            </Button>
+                          ) : (
+                            <Button size="sm" onClick={() => navigate('/ai-game')} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                              返回地图
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1512,7 +1590,9 @@ function AiGameRoom() {
               <div className="mx-auto mb-2 max-w-3xl">
                 <MobileActionCard {...controlPanelProps} voteOpen={mobileVoteOpen} setVoteOpen={setMobileVoteOpen} />
               </div>
-              {!currentPlayer && room.status === 'waiting' ? (
+              {isObserver ? (
+                <div className="text-center text-sm text-muted-foreground">你正在围观本局</div>
+              ) : !currentPlayer && room.status === 'waiting' ? (
                 <div className="mx-auto flex max-w-3xl gap-2">
                   <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={16} placeholder="你的昵称" />
                   <Button onClick={join} disabled={busy}>加入</Button>

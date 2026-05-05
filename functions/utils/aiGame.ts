@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { modelConfigs } from '../../src/config/aiCharacters';
 import { generateUndercoverFallbackReply } from './aiGameFallback';
+import { hashStringToIndex } from './aiGameWords';
 
 export const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status,
@@ -152,6 +153,16 @@ const fallbackPairsByTier: Record<string, string[][]> = {
     ['手机', '平板'],
     ['雨伞', '雨衣'],
     ['键盘', '鼠标'],
+    ['公交车', '出租车'],
+    ['苹果', '香蕉'],
+    ['篮球', '足球'],
+    ['椅子', '桌子'],
+    ['冰箱', '空调'],
+    ['铅笔', '橡皮'],
+    ['电视', '电脑'],
+    ['鞋子', '袜子'],
+    ['太阳', '月亮'],
+    ['杯子', '碗'],
   ],
   close: [
     ['咖啡', '奶茶'],
@@ -159,6 +170,16 @@ const fallbackPairsByTier: Record<string, string[][]> = {
     ['酒店', '民宿'],
     ['老板', '领导'],
     ['耳机', '音箱'],
+    ['地铁', '公交'],
+    ['围巾', '帽子'],
+    ['牙刷', '梳子'],
+    ['书包', '行李箱'],
+    ['充电宝', '充电器'],
+    ['外套', '衬衫'],
+    ['沙发', '床'],
+    ['相机', '摄像机'],
+    ['口红', '粉底'],
+    ['手表', '手环'],
   ],
   contextual: [
     ['简历', '名片'],
@@ -166,6 +187,16 @@ const fallbackPairsByTier: Record<string, string[][]> = {
     ['会议室', '办公室'],
     ['合同', '发票'],
     ['外卖', '快递'],
+    ['地图', '导航'],
+    ['红包', '转账'],
+    ['密码', '验证码'],
+    ['直播', '短视频'],
+    ['超市', '便利店'],
+    ['图书馆', '书店'],
+    ['早餐', '夜宵'],
+    ['请假', '辞职'],
+    ['考试', '面试'],
+    ['医生', '护士'],
   ],
   abstract: [
     ['自由', '独立'],
@@ -173,6 +204,16 @@ const fallbackPairsByTier: Record<string, string[][]> = {
     ['安全感', '信任'],
     ['体面', '尊严'],
     ['热闹', '陪伴'],
+    ['效率', '质量'],
+    ['耐心', '细心'],
+    ['习惯', '自律'],
+    ['公平', '规则'],
+    ['惊喜', '期待'],
+    ['勇气', '冲动'],
+    ['安静', '孤独'],
+    ['礼貌', '距离感'],
+    ['稳定', '新鲜感'],
+    ['目标', '方向'],
   ],
 };
 const undercoverAngles = [
@@ -265,8 +306,7 @@ export function pickJuryCase(roomId: string) {
 }
 
 export function pickUndercoverPair(roomId: string) {
-  const seed = [...roomId].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
-  return undercoverPairs[seed % undercoverPairs.length];
+  return undercoverPairs[hashStringToIndex(roomId, undercoverPairs.length)];
 }
 
 function normalizeWordTier(tier?: string | null) {
@@ -277,8 +317,7 @@ function normalizeWordTier(tier?: string | null) {
 function pickFallbackPair(seed: string, tier?: string | null) {
   const normalizedTier = normalizeWordTier(tier);
   const pairs = fallbackPairsByTier[normalizedTier] || undercoverPairs;
-  const value = [...seed].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
-  return pairs[value % pairs.length] || pickUndercoverPair(seed);
+  return pairs[hashStringToIndex(`${normalizedTier}:${seed}`, pairs.length)] || pickUndercoverPair(seed);
 }
 
 function isSafeGeneratedWord(value: string) {
