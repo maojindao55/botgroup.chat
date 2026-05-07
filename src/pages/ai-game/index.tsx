@@ -1245,6 +1245,7 @@ function AiGameRoom() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [votingPending, setVotingPending] = useState(false);
+  const [postGameReviewPending, setPostGameReviewPending] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'vote' | 'reveal' | null>(null);
   const lastMessageIdRef = useRef(0);
@@ -1288,6 +1289,8 @@ function AiGameRoom() {
     setPlayers([]);
     setResult(null);
     setCurrentPlayerSecret(null);
+    setVotingPending(false);
+    setPostGameReviewPending(false);
     lastMessageIdRef.current = 0;
     setMessages([]);
   }, [roomId]);
@@ -1304,6 +1307,7 @@ function AiGameRoom() {
     setPlayers(data.data.players || []);
     setResult(data.data.result || null);
     setCurrentPlayerSecret(data.data.currentPlayerSecret || null);
+    return loadedRoom as GameRoomData;
   }, [roomId, playerId]);
 
   const loadMessages = useCallback(async () => {
@@ -1448,20 +1452,40 @@ function AiGameRoom() {
     }
   };
 
+  const requestPostGameReviews = async () => {
+    setPostGameReviewPending(true);
+    try {
+      await request('/api/ai-game/reviews', {
+        method: 'POST',
+        body: JSON.stringify({ roomId, playerId: currentPlayer?.id }),
+      });
+      await loadMessages();
+    } catch (error: any) {
+      toast.error(error.message || 'AI 复盘失败');
+    } finally {
+      setPostGameReviewPending(false);
+    }
+  };
+
   const vote = async () => {
     if (!selectedVote || !currentPlayer) return;
     setBusy(true);
     setVotingPending(true);
+    setPostGameReviewPending(false);
     try {
       await request('/api/ai-game/vote', {
         method: 'POST',
         body: JSON.stringify({ roomId, voterPlayerId: currentPlayer.id, targetPlayerId: selectedVote }),
       });
+      setVotingPending(false);
       toast.success('投票已提交');
       setSelectedVote('');
       setMobileVoteOpen(false);
-      await loadRoom();
+      const loadedRoom = await loadRoom();
       await loadMessages();
+      if (loadedRoom?.status === 'revealed' || loadedRoom?.status === 'archived') {
+        await requestPostGameReviews();
+      }
     } catch (error: any) {
       toast.error(error.message || '投票失败');
     } finally {
@@ -1482,7 +1506,11 @@ function AiGameRoom() {
     setBusy(true);
     try {
       await request('/api/ai-game/reveal', { method: 'POST', body: JSON.stringify({ roomId, playerId: currentPlayer.id }) });
-      await loadRoom();
+      const loadedRoom = await loadRoom();
+      await loadMessages();
+      if (loadedRoom?.status === 'revealed' || loadedRoom?.status === 'archived') {
+        await requestPostGameReviews();
+      }
     } catch (error: any) {
       toast.error(error.message || '揭晓失败');
     } finally {
@@ -1610,6 +1638,50 @@ function AiGameRoom() {
   const challengeUrl = typeof window !== 'undefined'
     ? buildAiGameChallengeUrl(window.location.href, campaignLevel?.levelNumber)
     : '';
+  const hasGameOverMessage = messages.some(message =>
+    message.sender_type === 'system'
+    && message.content.startsWith('投票完成')
+    && (message.content.includes('游戏结束') || message.content.includes('身份已揭晓'))
+  );
+  const renderCampaignSettlementCard = () => {
+    if (!campaignLevel || !revealed || !result) return null;
+    return (
+      <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+        <div className="mx-auto max-w-sm rounded-lg border bg-card p-3 shadow-sm">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">晋级赛结算</div>
+              <div className="truncate text-xs text-muted-foreground">{campaignLevel.title}</div>
+            </div>
+            <div className="flex text-[#c2410c]">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Star key={index} className={`h-4 w-4 ${index < campaignStars ? 'fill-current' : 'opacity-25'}`} />
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg bg-muted px-3 py-2 text-sm">
+            {campaignStars > 0 ? '通关成功，下一关已解锁。' : '这关还没通关，重玩一次调整发言和投票策略。'}
+          </div>
+          {!isObserver && (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button variant="outline" size="sm" onClick={() => createCampaignRoomFromLevel(campaignLevel)} disabled={busy}>
+                重玩
+              </Button>
+              {campaignStars > 0 && nextCampaignLevel ? (
+                <Button size="sm" onClick={() => createCampaignRoomFromLevel(nextCampaignLevel)} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                  下一关
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => navigate('/ai-game')} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                  返回地图
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="fixed inset-0 bg-background">
@@ -1689,43 +1761,46 @@ function AiGameRoom() {
                       const visibleVoteNames = new Set(votePairs.flatMap(pair => [pair.voter, pair.target]));
                       const priorEliminatedPlayers = candidatePlayers.filter(player => player.eliminated_at && !visibleVoteNames.has(player.display_name));
                       return (
-                        <div key={message.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                          <div className="mx-auto max-w-sm rounded-xl border-2 border-[#c2410c]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#c2410c]/30">
-                            <Trophy className="mx-auto mb-2 h-6 w-6 text-[#c2410c]" />
-                            <div className="text-center text-sm font-semibold text-foreground">游戏结束</div>
-                            {(votePairs.length > 0 || priorEliminatedPlayers.length > 0) && (
-                              <div className="mt-3 space-y-1.5 rounded-lg bg-white/60 p-2 dark:bg-black/20">
-                                {votePairs.map((pair, i) => {
-                                  const voter = candidatePlayers.find(player => player.display_name === pair.voter);
-                                  const target = candidatePlayers.find(player => player.display_name === pair.target);
-                                  return (
-                                    <VoteRecord
-                                      key={i}
-                                      voterName={pair.voter}
-                                      targetName={pair.target}
-                                      voterRole={getPlayerRoleLabel({ player: voter, isUndercoverMode })}
-                                      targetRole={getPlayerRoleLabel({ player: target, isUndercoverMode })}
-                                      targetEliminated={pair.target === eliminatedName}
+                        <div key={message.id} className="space-y-3">
+                          <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+                            <div className="mx-auto max-w-sm rounded-xl border-2 border-[#c2410c]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#c2410c]/30">
+                              <Trophy className="mx-auto mb-2 h-6 w-6 text-[#c2410c]" />
+                              <div className="text-center text-sm font-semibold text-foreground">游戏结束</div>
+                              {(votePairs.length > 0 || priorEliminatedPlayers.length > 0) && (
+                                <div className="mt-3 space-y-1.5 rounded-lg bg-white/60 p-2 dark:bg-black/20">
+                                  {votePairs.map((pair, i) => {
+                                    const voter = candidatePlayers.find(player => player.display_name === pair.voter);
+                                    const target = candidatePlayers.find(player => player.display_name === pair.target);
+                                    return (
+                                      <VoteRecord
+                                        key={i}
+                                        voterName={pair.voter}
+                                        targetName={pair.target}
+                                        voterRole={getPlayerRoleLabel({ player: voter, isUndercoverMode })}
+                                        targetRole={getPlayerRoleLabel({ player: target, isUndercoverMode })}
+                                        targetEliminated={pair.target === eliminatedName}
+                                      />
+                                    );
+                                  })}
+                                  {priorEliminatedPlayers.map(player => (
+                                    <EliminatedIdentityRecord
+                                      key={player.id}
+                                      player={player}
+                                      isUndercoverMode={isUndercoverMode}
                                     />
-                                  );
-                                })}
-                                {priorEliminatedPlayers.map(player => (
-                                  <EliminatedIdentityRecord
-                                    key={player.id}
-                                    player={player}
-                                    isUndercoverMode={isUndercoverMode}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                            {resultLines.length > 0 && (
-                              <div className="mt-2 space-y-0.5 text-xs text-muted-foreground leading-relaxed text-center">
-                                {resultLines.map((line, i) => (
-                                  <p key={i}>{line}</p>
-                                ))}
-                              </div>
-                            )}
+                                  ))}
+                                </div>
+                              )}
+                              {resultLines.length > 0 && (
+                                <div className="mt-2 space-y-0.5 text-xs text-muted-foreground leading-relaxed text-center">
+                                  {resultLines.map((line, i) => (
+                                    <p key={i}>{line}</p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
+                          {renderCampaignSettlementCard()}
                         </div>
                       );
                     }
@@ -1814,46 +1889,17 @@ function AiGameRoom() {
                     </div>
                   );
                 })}
-                {campaignLevel && revealed && result && (
-                  <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                    <div className="mx-auto max-w-sm rounded-lg border bg-card p-3 shadow-sm">
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold">晋级赛结算</div>
-                          <div className="truncate text-xs text-muted-foreground">{campaignLevel.title}</div>
-                        </div>
-                        <div className="flex text-[#c2410c]">
-                          {Array.from({ length: 3 }).map((_, index) => (
-                            <Star key={index} className={`h-4 w-4 ${index < campaignStars ? 'fill-current' : 'opacity-25'}`} />
-                          ))}
-                        </div>
-                      </div>
-                      <div className="rounded-lg bg-muted px-3 py-2 text-sm">
-                        {campaignStars > 0 ? '通关成功，下一关已解锁。' : '这关还没通关，重玩一次调整发言和投票策略。'}
-                      </div>
-                      {!isObserver && (
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          <Button variant="outline" size="sm" onClick={() => createCampaignRoomFromLevel(campaignLevel)} disabled={busy}>
-                            重玩
-                          </Button>
-                          {campaignStars > 0 && nextCampaignLevel ? (
-                            <Button size="sm" onClick={() => createCampaignRoomFromLevel(nextCampaignLevel)} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
-                              下一关
-                            </Button>
-                          ) : (
-                            <Button size="sm" onClick={() => navigate('/ai-game')} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
-                              返回地图
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                {!hasGameOverMessage && renderCampaignSettlementCard()}
                 {votingPending && (
                   <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     AI 正在投票，等待结果…
+                  </div>
+                )}
+                {postGameReviewPending && (
+                  <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    AI 正在复盘…
                   </div>
                 )}
                 <div ref={messagesEndRef} />

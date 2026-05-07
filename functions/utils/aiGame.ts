@@ -672,6 +672,117 @@ export async function generateUndercoverVote(env: any, voter: any, players: any[
   return fallback[seed % fallback.length] || null;
 }
 
+export async function generateAiPostGameReview(env: any, player: any, room: any, players: any[], messages: any[], votes: any[]) {
+  const isUndercover = room.mode === 'undercover';
+  const meta = isUndercover ? parseUndercoverMeta(player.ai_persona) : null;
+  const roleText = players.map((p) => {
+    const pMeta = isUndercover ? parseUndercoverMeta(p.ai_persona) : null;
+    return pMeta
+      ? `${p.display_name}: ${pMeta.role === 'undercover' ? '卧底' : '平民'}，词语=${pMeta.word}`
+      : `${p.display_name}: ${p.secret_role || p.player_type}`;
+  }).join('\n');
+  const voteText = votes.map((vote) => `${vote.voter_name || vote.voter_player_id} 投给 ${vote.target_name || vote.target_player_id}`).join('\n') || '无投票记录';
+  const transcript = messages
+    .filter((msg) => msg.sender_type !== 'system')
+    .map((msg) => `${msg.sender_name}: ${msg.content}`)
+    .join('\n')
+    .slice(-4500);
+
+  try {
+    const { config, apiKey } = getModel(env);
+    const openai = new OpenAI({ apiKey, baseURL: config.baseURL });
+    const prompt = [
+      '你刚结束一局群聊游戏，现在以玩家身份在群里随口说一句本局感受。',
+      '像真人玩家聊天，不要像报告，不要 Markdown，不要列表，不要自称 AI 或语言模型。',
+      '只聊这一局刚发生的事：可以承认看错、吐槽自己、怀疑某个发言、夸某个人装得像、解释自己为什么投那票。',
+      '不要说下局、下一把、以后、策略、调整、复盘这些词。',
+      '不要固定开头，不要所有人都用同一种句式。',
+      '长度 18 到 70 个中文字，口语一点，可以不完整但要有信息量。',
+      `你的名字：${player.display_name}`,
+      `你的人设：${player.ai_persona || '普通玩家'}`,
+      isUndercover && meta ? `你的身份：${meta.role === 'undercover' ? '卧底' : '平民'}，你的词语：${meta.word}` : `你的身份：${player.secret_role || player.player_type}`,
+      `房间模式：${room.mode}`,
+    ].join('\n');
+
+    const completion = await openai.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: `身份：\n${roleText}\n\n投票：\n${voteText}\n\n聊天记录：\n${transcript || '暂无'}\n\n请以 ${player.display_name} 的口吻发一句群聊里的赛后反应，只说这一局，别太端着。` },
+      ],
+      temperature: 1,
+      presence_penalty: 0.5,
+      frequency_penalty: 0.45,
+    });
+
+    const content = completion.choices[0]?.message?.content?.trim() || '';
+    return content
+      .replace(new RegExp(`^${player.display_name}[：:]\\s*`), '')
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/复盘[：:，,\s]*/g, '')
+      .replace(/(下局|下一局|下把|下一把|以后|策略|调整)/g, '')
+      .replace(/[()[\]（）【】]/g, '')
+      .trim()
+      .slice(0, 120);
+  } catch {
+    const seed = [...`${room.id}:${player.id}:${messages.length}`].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+    const fallback = isUndercover && meta?.role === 'undercover'
+      ? '刚才我带票有点太急了，自己都感觉痕迹明显，能撑到最后已经算运气好。'
+      : '我刚才真有点被最后几句带跑，前面那些描述细节没记住，这票投得不太稳。';
+    const variants = [
+      fallback,
+      '小周那句描述我当时没多想，揭完才发现其实挺露的，我这票有点后知后觉。',
+      '我刚才一直在看谁说得最安全，结果安全的人也可能只是装得稳，这局挺绕的。',
+      '这票我投出去的时候还挺确定，结果一揭晓就尴尬了，前面判断有点飘。',
+    ];
+    return variants[seed % variants.length];
+  }
+}
+
+export async function insertAiPostGameReviews(db: D1Database, env: any, room: any, players: any[], messages: any[], votes: any[]) {
+  const existing = await db.prepare(
+    `SELECT COUNT(*) as count FROM ai_game_messages
+     WHERE room_id = ?
+       AND sender_type = 'ai'
+       AND (SELECT ended_at FROM ai_game_rooms WHERE id = ?) IS NOT NULL
+       AND datetime(created_at) >= datetime((SELECT ended_at FROM ai_game_rooms WHERE id = ?))`
+  ).bind(room.id, room.id, room.id).first();
+  const gameOverSystem = await db.prepare(
+    `SELECT id FROM ai_game_messages
+     WHERE room_id = ?
+       AND sender_type = 'system'
+       AND content LIKE '投票完成%'
+       AND (content LIKE '%游戏结束%' OR content LIKE '%身份已揭晓%')
+     ORDER BY id DESC LIMIT 1`
+  ).bind(room.id).first();
+  if (Number(existing?.count || 0) > 0 && !gameOverSystem?.id) return;
+  if (gameOverSystem?.id) {
+    const existingAfterGameOver = await db.prepare(
+      `SELECT COUNT(*) as count FROM ai_game_messages
+       WHERE room_id = ? AND sender_type = 'ai' AND id > ?`
+    ).bind(room.id, gameOverSystem.id).first();
+    if (Number(existingAfterGameOver?.count || 0) > 0) return;
+  }
+
+  const aiPlayers = players.filter((player) => player.player_type === 'ai');
+  for (const player of aiPlayers) {
+    const content = await generateAiPostGameReview(env, player, room, players, messages, votes);
+    if (!content.trim()) continue;
+    await db.prepare(
+      `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)
+       VALUES (?, ?, ?, 'ai', ?, CURRENT_TIMESTAMP)`
+    ).bind(room.id, player.id, player.display_name, content).run();
+    messages.push({
+      room_id: room.id,
+      player_id: player.id,
+      sender_name: player.display_name,
+      sender_type: 'ai',
+      content,
+      created_at: new Date().toISOString(),
+    });
+  }
+}
+
 export async function generateAiGameSummary(env: any, room: any, players: any[], messages: any[], votes: any[]) {
   try {
     const { config, apiKey } = getModel(env);
