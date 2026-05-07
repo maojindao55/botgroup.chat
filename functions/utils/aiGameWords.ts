@@ -19,7 +19,7 @@ const simplifiedTraditionalPairs = new Set([
 function isSafeGeneratedWord(value: string) {
   const word = value.trim();
   if (!/^[\u4e00-\u9fa5]{1,4}$/.test(word)) return false;
-  if (/政治|成人|色情|暴力|疾病|癌|药|品牌|公司|青团|汤圆|月饼|粽子|元宵|腊八/.test(word)) return false;
+  if (/政治|成人|色情|暴力|疾病|癌|药|公司|青团|汤圆|月饼|粽子|元宵|腊八/.test(word)) return false;
   return true;
 }
 

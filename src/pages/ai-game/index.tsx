@@ -376,11 +376,14 @@ interface GameControlPanelProps {
   isJuryMode: boolean;
   isUndercoverMode: boolean;
   result: GameResult | null;
+  campaignLevel?: AiGameCampaignLevel | null;
+  campaignStars?: number;
   copied: boolean;
   onStart: () => void;
   onCopyShare: () => void;
   onNewGame: () => void;
   onReplay?: () => void;
+  onNextCampaign?: () => void;
   onConfirm: (action: 'vote' | 'reveal') => void;
   voteHint?: string;
   compact?: boolean;
@@ -406,16 +409,20 @@ function GameControlPanel({
   isJuryMode,
   isUndercoverMode,
   result,
+  campaignLevel,
+  campaignStars = 0,
   copied,
   onStart,
   onCopyShare,
   onNewGame,
   onReplay,
+  onNextCampaign,
   onConfirm,
   voteHint,
   compact = false,
 }: GameControlPanelProps) {
   const selectedPlayer = candidatePlayers.find(player => player.id === selectedVote);
+  const revealedWordPair = revealed && isUndercoverMode ? extractUndercoverWordPair(result?.summary) : null;
   const playerGridClass = compact
     ? 'grid grid-cols-2 gap-2'
     : 'grid grid-cols-2 gap-2';
@@ -431,6 +438,15 @@ function GameControlPanel({
           {candidatePlayers.map(player => {
             const isOut = !!player.eliminated_at && !revealed;
             const disabled = !canGuess || player.id === currentPlayer?.id || player.player_type === 'observer' || !!player.eliminated_at;
+            const isMe = player.id === currentPlayer?.id;
+            const isUndercover = isUndercoverMode && revealed && parseUndercoverMeta(player.ai_persona)?.role === 'undercover';
+            const isAi = !isUndercoverMode && revealed && player.secret_role === 'ai';
+            const revealedRoleLabel = revealed
+              ? isUndercoverMode
+                ? (isUndercover ? '卧底' : '平民')
+                : (isAi ? 'AI' : player.secret_role === 'observer' ? '观察者' : '真人')
+              : '';
+            const revealedRoleHighlight = isUndercover || isAi;
             const playerStatus = (() => {
               if (isOut) return <span className="font-medium text-red-500">已出局</span>;
               if (isUndercoverMode && revealed) {
@@ -451,7 +467,7 @@ function GameControlPanel({
                 key={player.id}
                 onClick={() => setSelectedVote(player.id)}
                 disabled={disabled}
-                className={`relative flex min-w-0 items-center gap-1.5 rounded-lg border p-2 text-left transition-colors ${selectedVote === player.id ? 'border-[#c2410c] bg-orange-50 dark:bg-orange-950/20' : 'hover:bg-accent'} ${player.id === currentPlayer?.id ? 'opacity-70' : ''}`}
+                className={`relative flex min-w-0 items-center gap-1.5 rounded-lg border p-2 text-left transition-colors ${selectedVote === player.id ? 'border-[#c2410c] bg-orange-50 dark:bg-orange-950/20' : 'hover:bg-accent'} ${isMe ? 'opacity-70' : ''}`}
               >
                 <div className={`relative ${isOut ? 'opacity-50 grayscale' : ''}`}>
                   <PlayerAvatar player={player} revealed={revealed} compact={compact} />
@@ -463,7 +479,17 @@ function GameControlPanel({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className={`truncate ${compact ? 'text-xs' : 'text-sm'} font-medium ${isOut ? 'line-through text-muted-foreground' : ''}`}>{player.display_name}</div>
-                  <div className="truncate text-xs text-muted-foreground">{playerStatus}</div>
+                  {revealed ? (
+                    <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium leading-none ${revealedRoleHighlight ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' : 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'}`}>
+                        {revealedRoleLabel}
+                      </span>
+                      {player.eliminated_at && <span className="text-xs font-medium text-red-500">已出局</span>}
+                      {isMe && <span className="text-xs text-muted-foreground">(你)</span>}
+                    </div>
+                  ) : (
+                    <div className="truncate text-xs text-muted-foreground">{playerStatus}</div>
+                  )}
                 </div>
               </button>
             );
@@ -524,20 +550,20 @@ function GameControlPanel({
             ) : (
               <>
             {!compact && (
-              <div className="rounded-lg bg-muted p-3">
-                <div className="mb-2 text-sm font-medium">本局规则</div>
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  <p>{modeRules.setup}</p>
-                  <p>{modeRules.goal}</p>
-                  <p>{modeRules.winCondition}</p>
+              <details className="group rounded-lg border bg-muted/50 px-3 py-2 text-sm">
+                <summary className="cursor-pointer select-none list-none font-medium text-muted-foreground marker:hidden">
+                  规则与流程
+                  <span className="float-right text-xs transition-transform group-open:rotate-180">⌄</span>
+                </summary>
+                <div className="mt-3 space-y-3 border-t pt-3">
+                  <div className="space-y-1.5 text-sm text-muted-foreground">
+                    <p>{modeRules.setup}</p>
+                    <p>{modeRules.goal}</p>
+                    <p>{modeRules.winCondition}</p>
+                  </div>
+                  <RuleList items={modeRules.flow} />
                 </div>
-              </div>
-            )}
-            {!compact && (
-              <div className="rounded-lg bg-muted p-3">
-                <div className="mb-2 text-sm font-medium">流程</div>
-                <RuleList items={modeRules.flow} />
-              </div>
+              </details>
             )}
             <Button onClick={onStart} disabled={busy || !currentPlayer} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
               {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在生成词组…</> : <><Play className="mr-2 h-4 w-4" />开始游戏</>}
@@ -597,33 +623,40 @@ function GameControlPanel({
 
         {revealed && (
           <div className="space-y-3">
-            <div className="rounded-lg border bg-card p-3">
-              <div className="mb-2 text-sm font-medium">身份揭晓</div>
-              <div className="space-y-2">
-                {candidatePlayers.map(player => {
-                  const avatar = getAvatarData(player.display_name);
-                  const isMe = player.id === currentPlayer?.id;
-                  const isUndercover = isUndercoverMode && parseUndercoverMeta(player.ai_persona)?.role === 'undercover';
-                  const isAi = !isUndercoverMode && player.secret_role === 'ai';
-                  const roleLabel = isUndercoverMode
-                    ? (isUndercover ? '卧底' : '平民')
-                    : (isAi ? 'AI' : '真人');
-                  const isHighlight = isUndercover || isAi;
-                  return (
-                    <div key={player.id} className="flex items-center gap-2">
-                      <Avatar className="h-7 w-7">
-                        <AvatarFallback style={{ backgroundColor: avatar.backgroundColor, color: 'white' }}>{player.display_name[0]}</AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1 truncate text-sm">{player.display_name}</div>
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${isHighlight ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' : 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'}`}>
-                        {roleLabel}
-                      </span>
-                      {isMe && <span className="text-xs text-muted-foreground">(你)</span>}
+            {isUndercoverMode && !isObserver && (
+              <div className="rounded-lg border border-[#c2410c]/30 bg-orange-50 p-3 dark:bg-orange-950/20">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold">本局结算</div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {campaignLevel ? campaignLevel.title : '谁是卧底'}
                     </div>
-                  );
-                })}
+                  </div>
+                  <div className={`flex-none rounded-full px-2 py-0.5 text-xs font-medium ${resultStars(result) > 0 ? 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'}`}>
+                    {resultStars(result) > 0 ? '成功' : '失败'}
+                  </div>
+                </div>
+                {campaignLevel && (
+                  <div className="mt-2 flex text-[#c2410c]">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <Star key={index} className={`h-4 w-4 ${index < campaignStars ? 'fill-current' : 'opacity-25'}`} />
+                    ))}
+                  </div>
+                )}
+                {revealedWordPair && (
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg bg-white/70 px-3 py-2 dark:bg-black/20">
+                      <div className="text-muted-foreground">平民词</div>
+                      <div className="mt-0.5 truncate font-semibold text-foreground">{revealedWordPair.civilianWord}</div>
+                    </div>
+                    <div className="rounded-lg bg-white/70 px-3 py-2 dark:bg-black/20">
+                      <div className="text-muted-foreground">卧底词</div>
+                      <div className="mt-0.5 truncate font-semibold text-foreground">{revealedWordPair.undercoverWord}</div>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
 
             {!isJuryMode && !isUndercoverMode && (
               <div className="grid grid-cols-2 gap-2">
@@ -637,18 +670,6 @@ function GameControlPanel({
                 </div>
               </div>
             )}
-            {isUndercoverMode && !isObserver && (
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg bg-muted p-3">
-                  <div className="text-xs text-muted-foreground">闯关结果</div>
-                  <div className="mt-1 text-lg font-semibold">{resultStars(result) > 0 ? '成功' : '失败'}</div>
-                </div>
-                <div className="rounded-lg bg-muted p-3">
-                  <div className="text-xs text-muted-foreground">你的身份</div>
-                  <div className="mt-1 text-lg font-semibold">{currentPlayerSecret?.role === 'undercover' ? '卧底' : '平民'}</div>
-                </div>
-              </div>
-            )}
             <div className="rounded-lg bg-muted p-3 text-sm">
               {result?.summary || (isJuryMode ? '本案已经宣判。' : '本局已经揭晓。')}
             </div>
@@ -658,6 +679,16 @@ function GameControlPanel({
                   {copied ? <Check className="mr-2 h-4 w-4" /> : <Share2 className="mr-2 h-4 w-4" />}
                   生成战绩卡
                 </Button>
+                {onReplay && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" onClick={onReplay} disabled={busy}>
+                      重玩本关
+                    </Button>
+                    <Button onClick={onNextCampaign || onNewGame} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                      {onNextCampaign ? '下一关' : '返回地图'}
+                    </Button>
+                  </div>
+                )}
                 {!onReplay && (
                   <Button onClick={onNewGame} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
                     <Play className="mr-2 h-4 w-4" />
@@ -694,13 +725,13 @@ function MobileActionCard({
   isObserver,
   isJuryMode,
   isUndercoverMode,
-  onReplay,
   result,
   copied,
   effectiveStatus,
   onStart,
   onCopyShare,
   onNewGame,
+  onReplay,
   onConfirm,
   voteHint,
   voteOpen,
@@ -746,37 +777,24 @@ function MobileActionCard({
   }
 
   if (revealed) {
-    const wordPairMatch = result?.summary?.match(/平民词是「(.+?)」，卧底词是「(.+?)」/);
+    if (isObserver) return null;
+
     return (
       <div className="rounded-lg border bg-card p-2.5 shadow-sm md:hidden">
         <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <span className="text-xs font-medium">{isUndercoverMode
-              ? (resultStars(result) > 0 ? '✅ 闯关成功' : '❌ 闯关失败')
-              : isJuryMode ? '已宣判' : '身份揭晓'}</span>
-          </div>
-          {!isObserver && (
-            <div className="flex gap-1.5">
-              <Button size="sm" variant="outline" onClick={onCopyShare} className="h-7 px-2 text-xs">
-                {copied ? <Check className="mr-1 h-3 w-3" /> : <Share2 className="mr-1 h-3 w-3" />}
-                分享
+          <div className={`grid min-w-0 flex-1 gap-1.5 ${onReplay ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            <Button size="sm" variant="outline" onClick={onCopyShare} className="h-7 px-2 text-xs">
+              {copied ? <Check className="mr-1 h-3 w-3" /> : <Share2 className="mr-1 h-3 w-3" />}
+              分享
+            </Button>
+            {!onReplay && (
+              <Button onClick={onNewGame} size="sm" className="h-7 bg-[#c2410c] px-2 text-xs text-white hover:bg-[#9a3412]">
+                <Play className="mr-1 h-3 w-3" />
+                再来一局
               </Button>
-              {!onReplay && (
-                <Button onClick={onNewGame} size="sm" className="h-7 bg-[#c2410c] px-2 text-xs text-white hover:bg-[#9a3412]">
-                  <Play className="mr-1 h-3 w-3" />
-                  再来一局
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-        {wordPairMatch && (
-          <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span>平民词：<b className="text-foreground">{wordPairMatch[1]}</b></span>
-            <span>·</span>
-            <span>卧底词：<b className="text-foreground">{wordPairMatch[2]}</b></span>
+            )}
           </div>
-        )}
+        </div>
       </div>
     );
   }
@@ -1605,6 +1623,8 @@ function AiGameRoom() {
     return '进行中';
   })();
   const showHeaderCountdown = currentStatus === 'playing' && !revealed && !campaignTimedOut && startedAt && room;
+  const nextCampaignLevel = campaignLevel ? generateCampaignLevel(campaignLevel.levelNumber + 1) : undefined;
+  const campaignStars = campaignLevel && result && revealed ? resultStars(result) : 0;
   const controlPanelProps = {
     room,
     modeRules,
@@ -1625,16 +1645,17 @@ function AiGameRoom() {
     isJuryMode,
     isUndercoverMode,
     result,
+    campaignLevel,
+    campaignStars,
     copied,
     onStart: start,
     onCopyShare: copyShare,
     onNewGame: () => navigate('/ai-game'),
     onReplay: campaignLevel ? () => createCampaignRoomFromLevel(campaignLevel) : undefined,
+    onNextCampaign: campaignStars > 0 && nextCampaignLevel ? () => createCampaignRoomFromLevel(nextCampaignLevel) : undefined,
     onConfirm: (action: 'vote' | 'reveal') => setConfirmAction(action),
     voteHint,
   };
-  const nextCampaignLevel = campaignLevel ? generateCampaignLevel(campaignLevel.levelNumber + 1) : undefined;
-  const campaignStars = campaignLevel && result && revealed ? resultStars(result) : 0;
   const challengeUrl = typeof window !== 'undefined'
     ? buildAiGameChallengeUrl(window.location.href, campaignLevel?.levelNumber)
     : '';
@@ -1645,8 +1666,9 @@ function AiGameRoom() {
   );
   const renderCampaignSettlementCard = () => {
     if (!campaignLevel || !revealed || !result) return null;
+    const wordPair = extractUndercoverWordPair(result.summary);
     return (
-      <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
+      <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 md:hidden">
         <div className="mx-auto max-w-sm rounded-lg border bg-card p-3 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -1662,6 +1684,18 @@ function AiGameRoom() {
           <div className="rounded-lg bg-muted px-3 py-2 text-sm">
             {campaignStars > 0 ? '通关成功，下一关已解锁。' : '这关还没通关，重玩一次调整发言和投票策略。'}
           </div>
+          {wordPair && (
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg bg-muted px-3 py-2">
+                <div className="text-muted-foreground">平民词</div>
+                <div className="mt-0.5 truncate font-semibold text-foreground">{wordPair.civilianWord}</div>
+              </div>
+              <div className="rounded-lg bg-muted px-3 py-2">
+                <div className="text-muted-foreground">卧底词</div>
+                <div className="mt-0.5 truncate font-semibold text-foreground">{wordPair.undercoverWord}</div>
+              </div>
+            </div>
+          )}
           {!isObserver && (
             <div className="mt-3 grid grid-cols-2 gap-2">
               <Button variant="outline" size="sm" onClick={() => createCampaignRoomFromLevel(campaignLevel)} disabled={busy}>
@@ -1763,11 +1797,15 @@ function AiGameRoom() {
                       return (
                         <div key={message.id} className="space-y-3">
                           <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                            <div className="mx-auto max-w-sm rounded-xl border-2 border-[#c2410c]/40 bg-gradient-to-br from-orange-50 to-amber-50 p-4 shadow-sm dark:from-orange-950/30 dark:to-amber-950/20 dark:border-[#c2410c]/30">
-                              <Trophy className="mx-auto mb-2 h-6 w-6 text-[#c2410c]" />
-                              <div className="text-center text-sm font-semibold text-foreground">游戏结束</div>
+                            <div className="mx-auto max-w-sm rounded-xl border border-red-200 bg-red-50/60 p-3 shadow-sm md:border-border md:bg-card dark:border-red-900/40 dark:bg-red-950/20 md:dark:border-border md:dark:bg-card">
+                              <Trophy className="mx-auto mb-2 h-6 w-6 text-[#c2410c] md:hidden" />
+                              <Vote className="mx-auto mb-1 hidden h-4 w-4 text-red-500 md:block" />
+                              <div className="text-center text-sm font-semibold text-foreground">
+                                <span className="md:hidden">游戏结束</span>
+                                <span className="hidden md:inline">最终投票</span>
+                              </div>
                               {(votePairs.length > 0 || priorEliminatedPlayers.length > 0) && (
-                                <div className="mt-3 space-y-1.5 rounded-lg bg-white/60 p-2 dark:bg-black/20">
+                                <div className="mt-3 space-y-1.5 rounded-lg bg-white/60 p-2 md:bg-muted dark:bg-black/20">
                                   {votePairs.map((pair, i) => {
                                     const voter = candidatePlayers.find(player => player.display_name === pair.voter);
                                     const target = candidatePlayers.find(player => player.display_name === pair.target);
@@ -1792,7 +1830,7 @@ function AiGameRoom() {
                                 </div>
                               )}
                               {resultLines.length > 0 && (
-                                <div className="mt-2 space-y-0.5 text-xs text-muted-foreground leading-relaxed text-center">
+                                <div className="mt-2 space-y-0.5 text-xs text-muted-foreground leading-relaxed text-center md:hidden">
                                   {resultLines.map((line, i) => (
                                     <p key={i}>{line}</p>
                                   ))}
