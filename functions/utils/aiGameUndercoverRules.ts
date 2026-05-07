@@ -19,12 +19,14 @@ export function pickUndercoverIndexes(roomId: string, candidateCount: number, un
 export function evaluateUndercoverRound(options: {
   eliminatedRole?: string | null;
   eliminatedIsHuman?: boolean;
+  humanRole?: string | null;
   remainingRoles: Array<string | null | undefined>;
 }) {
   const remainingUndercoverCount = options.remainingRoles.filter(role => role === 'undercover').length;
   const remainingCivilianCount = options.remainingRoles.filter(role => role === 'civilian').length;
   const civilianWin = remainingUndercoverCount === 0;
-  const undercoverWin = Boolean(options.eliminatedIsHuman) || (remainingUndercoverCount > 0 && remainingUndercoverCount >= remainingCivilianCount);
+  const humanCivilianEliminated = Boolean(options.eliminatedIsHuman) && options.humanRole === 'civilian';
+  const undercoverWin = humanCivilianEliminated || (remainingUndercoverCount > 0 && remainingUndercoverCount >= remainingCivilianCount);
 
   return {
     remainingUndercoverCount,

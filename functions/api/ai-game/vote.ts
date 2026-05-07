@@ -142,6 +142,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const roundState = evaluateUndercoverRound({
           eliminatedRole: eliminatedMeta?.role,
           eliminatedIsHuman: eliminated?.id === humanPlayer?.id,
+          humanRole: humanMeta?.role,
           remainingRoles: remainingAfterElimination.map((player: any) => parseUndercoverMeta(player.ai_persona)?.role),
         });
         const gameOver = !eliminated || roundState.gameOver;

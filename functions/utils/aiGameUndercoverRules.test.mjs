@@ -48,6 +48,26 @@ assert.equal(evaluateUndercoverRound({
   remainingRoles: ['civilian', 'undercover'],
 }).undercoverWin, true);
 
+assert.deepEqual(evaluateUndercoverRound({
+  eliminatedRole: 'undercover',
+  eliminatedIsHuman: true,
+  humanRole: 'undercover',
+  remainingRoles: ['civilian', 'civilian', 'civilian'],
+}), {
+  remainingUndercoverCount: 0,
+  remainingCivilianCount: 3,
+  civilianWin: true,
+  undercoverWin: false,
+  gameOver: true,
+});
+
+assert.equal(evaluateUndercoverRound({
+  eliminatedRole: 'civilian',
+  eliminatedIsHuman: true,
+  humanRole: 'civilian',
+  remainingRoles: ['undercover', 'civilian', 'civilian', 'civilian'],
+}).undercoverWin, true);
+
 assert.equal(isPlayerVoteDirectionCorrect('civilian', 'undercover'), true);
 assert.equal(isPlayerVoteDirectionCorrect('undercover', 'civilian'), true);
 assert.equal(isPlayerVoteDirectionCorrect('undercover', 'undercover'), false);
