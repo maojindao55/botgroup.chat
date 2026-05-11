@@ -13,18 +13,20 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { aiGameGlobalRules, aiGameModes, generateCampaignLevel, getCampaignWindow } from '@/config/aiGame';
-import type { AiGameCampaignLevel } from '@/config/aiGame';
+import { aiGameGlobalRules, aiGameModes, generateCampaignLevel, generateHumanHuntLevel, getCampaignWindow, getHumanHuntLevels } from '@/config/aiGame';
+import type { AiGameCampaignLevel, AiGameHumanHuntLevel } from '@/config/aiGame';
 import { request } from '@/utils/request';
 import { getAvatarData } from '@/utils/avatar';
 import type { CurrentPlayerSecret, GameMessage, GamePlayer, GameResult, GameRoomData } from './types';
 import { getPlayerRoleLabel, parseVoteResultMessage } from './voteMessage';
-import { buildAiGameChallengeUrl, parseChallengeLevel } from './share';
+import { buildAiGameChallengeUrl, buildHumanHuntChallengeUrl, parseChallengeLevel, parseHumanHuntChallengeLevel } from './share';
 import { createQrSvgDataUrl } from './qr';
+import { getHumanHuntTurnState } from './humanHunt';
 
 const playerStorageKey = (roomId: string) => `ai-game-player:${roomId}`;
 const roomLevelStorageKey = (roomId: string) => `ai-game-room-level:${roomId}`;
 const campaignProgressKey = 'ai-game-campaign-progress';
+const humanHuntProgressKey = 'ai-game-human-hunt-progress';
 
 interface CampaignProgress {
   highestUnlockedLevel: number;
@@ -73,6 +75,18 @@ function loadCampaignProgress(): CampaignProgress {
 
 function saveCampaignProgress(progress: CampaignProgress) {
   localStorage.setItem(campaignProgressKey, JSON.stringify(progress));
+}
+
+function loadHumanHuntProgress(): CampaignProgress {
+  try {
+    return normalizeCampaignProgress(JSON.parse(localStorage.getItem(humanHuntProgressKey) || '{}'));
+  } catch {
+    return normalizeCampaignProgress(null);
+  }
+}
+
+function saveHumanHuntProgress(progress: CampaignProgress) {
+  localStorage.setItem(humanHuntProgressKey, JSON.stringify(progress));
 }
 
 function toUtcDate(date?: string | null) {
@@ -211,6 +225,7 @@ function AiGameShareDialog({
   room,
   result,
   campaignLevel,
+  humanHuntLevel,
   campaignStars,
   currentPlayerSecret,
   challengeUrl,
@@ -220,6 +235,7 @@ function AiGameShareDialog({
   room: GameRoomData;
   result: GameResult | null;
   campaignLevel: AiGameCampaignLevel | null;
+  humanHuntLevel?: AiGameHumanHuntLevel | null;
   campaignStars: number;
   currentPlayerSecret: CurrentPlayerSecret | null;
   challengeUrl: string;
@@ -228,9 +244,13 @@ function AiGameShareDialog({
   const wordPair = extractUndercoverWordPair(result?.summary);
   const stars = resultStars(result);
   const guessedRight = stars > 0;
-  const title = campaignLevel ? `卧底晋级赛 第 ${campaignLevel.levelNumber} 关` : room.title.replace(/\s*\[tier:[^\]]+\]/, '');
-  const verdict = guessedRight ? '一票抓住破绽' : '这局被带偏了';
-  const roleText = currentPlayerSecret?.role === 'undercover' ? '卧底' : currentPlayerSecret?.role ? '平民' : '玩家';
+  const title = humanHuntLevel
+    ? `谁是人类 第 ${humanHuntLevel.levelNumber} 关`
+    : campaignLevel ? `卧底晋级赛 第 ${campaignLevel.levelNumber} 关` : room.title.replace(/\s*\[tier:[^\]]+\]/, '');
+  const verdict = humanHuntLevel
+    ? guessedRight ? '藏到了最后' : '被 AI 找到了'
+    : guessedRight ? '一票抓住破绽' : '这局被带偏了';
+  const roleText = humanHuntLevel ? '人类' : currentPlayerSecret?.role === 'undercover' ? '卧底' : currentPlayerSecret?.role ? '平民' : '玩家';
   const qrCodeUrl = useMemo(() => {
     try {
       return createQrSvgDataUrl(challengeUrl);
@@ -371,12 +391,15 @@ interface GameControlPanelProps {
   canReveal: boolean;
   campaignTimedOut?: boolean;
   busy: boolean;
+  aiChatPending?: boolean;
   revealed: boolean;
   isObserver: boolean;
   isJuryMode: boolean;
   isUndercoverMode: boolean;
+  isHumanHuntMode: boolean;
   result: GameResult | null;
   campaignLevel?: AiGameCampaignLevel | null;
+  humanHuntLevel?: AiGameHumanHuntLevel | null;
   campaignStars?: number;
   copied: boolean;
   onStart: () => void;
@@ -384,6 +407,7 @@ interface GameControlPanelProps {
   onNewGame: () => void;
   onReplay?: () => void;
   onNextCampaign?: () => void;
+  onAiChatRound?: () => void;
   onConfirm: (action: 'vote' | 'reveal') => void;
   voteHint?: string;
   compact?: boolean;
@@ -393,7 +417,6 @@ function GameControlPanel({
   room,
   modeRules,
   effectiveStatus,
-  players,
   candidatePlayers,
   activeCandidatePlayers,
   currentPlayer,
@@ -404,12 +427,15 @@ function GameControlPanel({
   canReveal,
   campaignTimedOut,
   busy,
+  aiChatPending = false,
   revealed,
   isObserver,
   isJuryMode,
   isUndercoverMode,
+  isHumanHuntMode,
   result,
   campaignLevel,
+  humanHuntLevel,
   campaignStars = 0,
   copied,
   onStart,
@@ -417,6 +443,7 @@ function GameControlPanel({
   onNewGame,
   onReplay,
   onNextCampaign,
+  onAiChatRound,
   onConfirm,
   voteHint,
   compact = false,
@@ -431,7 +458,7 @@ function GameControlPanel({
     <div className={compact ? 'w-full max-w-full overflow-hidden rounded-lg border bg-card shadow-sm' : 'flex min-h-0 flex-col bg-card'}>
       <div className="border-b p-2.5 md:p-4">
         <div className="mb-2.5 flex items-center justify-between">
-          <div className="font-medium">{isUndercoverMode ? '玩家列表' : isJuryMode ? '法庭成员' : isObserver ? '候选玩家' : '玩家席位'}</div>
+          <div className="font-medium">{isHumanHuntMode ? '存活席位' : isUndercoverMode ? '玩家列表' : isJuryMode ? '法庭成员' : isObserver ? '候选玩家' : '玩家席位'}</div>
           <div className="text-xs text-muted-foreground">{activeCandidatePlayers.length}/{room.max_players}</div>
         </div>
         <div className={playerGridClass}>
@@ -444,7 +471,9 @@ function GameControlPanel({
             const revealedRoleLabel = revealed
               ? isUndercoverMode
                 ? (isUndercover ? '卧底' : '平民')
-                : (isAi ? 'AI' : player.secret_role === 'observer' ? '观察者' : '真人')
+                : isHumanHuntMode
+                  ? (isAi ? 'AI' : player.secret_role === 'observer' ? '观察者' : '人类')
+                  : (isAi ? 'AI' : player.secret_role === 'observer' ? '观察者' : '真人')
               : '';
             const revealedRoleHighlight = isUndercover || isAi;
             const playerStatus = (() => {
@@ -457,6 +486,7 @@ function GameControlPanel({
                   </>
                 );
               }
+              if (isHumanHuntMode && !revealed) return player.eliminated_at ? '已出局' : player.id === currentPlayer?.id ? '你' : '存活中';
               if (isJuryMode && !revealed) return player.id === currentPlayer?.id ? '被告' : '法庭角色';
               if (revealed) return player.secret_role === 'ai' ? 'AI' : player.secret_role === 'observer' ? '观察者' : '真人';
               return player.id === currentPlayer?.id ? '你' : '身份未知';
@@ -549,7 +579,7 @@ function GameControlPanel({
               </div>
             ) : (
               <>
-            {!compact && (
+            {!compact && !isHumanHuntMode && (
               <details className="group rounded-lg border bg-muted/50 px-3 py-2 text-sm">
                 <summary className="cursor-pointer select-none list-none font-medium text-muted-foreground marker:hidden">
                   规则与流程
@@ -566,7 +596,7 @@ function GameControlPanel({
               </details>
             )}
             <Button onClick={onStart} disabled={busy || !currentPlayer} className="w-full bg-[#c2410c] text-white hover:bg-[#9a3412]">
-              {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在生成词组…</> : <><Play className="mr-2 h-4 w-4" />开始游戏</>}
+              {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />准备中…</> : <><Play className="mr-2 h-4 w-4" />开始游戏</>}
             </Button>
             <Button
               variant="outline"
@@ -592,18 +622,26 @@ function GameControlPanel({
               <>
             {!compact && (
               <div className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-                {isUndercoverMode
+                {isHumanHuntMode
+                  ? '自由聊天和互相试探，聊够后你可以发起投票。'
+                  : isUndercoverMode
                   ? '描述自己的词，观察发言方向，觉得可疑就投票。'
                   : '继续提问观察，选中可疑玩家后投票。'}
               </div>
             )}
             {!isJuryMode && (
                <Button variant="outline" onClick={() => onConfirm('vote')} disabled={!selectedVote || !currentPlayer || busy} className="w-full">
-                {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />投票中…</> : <><Vote className="mr-2 h-4 w-4" />{isUndercoverMode ? '提交投票' : '投给选中的玩家'}</>}
+              {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />投票中…</> : <><Vote className="mr-2 h-4 w-4" />{isHumanHuntMode ? '投出一个 AI' : isUndercoverMode ? '提交投票' : '投给选中的玩家'}</>}
+              </Button>
+            )}
+            {isHumanHuntMode && (
+              <Button variant="outline" onClick={onAiChatRound} disabled={busy || aiChatPending} className="w-full">
+                {aiChatPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bot className="mr-2 h-4 w-4" />}
+                {aiChatPending ? '聊天中…' : '让大家聊一下'}
               </Button>
             )}
             <Button onClick={() => onConfirm('reveal')} disabled={!canReveal || busy} className="w-full">
-              {isUndercoverMode ? '揭晓身份' : isJuryMode ? '请求宣判' : '直接揭晓'}
+              {isHumanHuntMode ? '揭晓身份' : isUndercoverMode ? '揭晓身份' : isJuryMode ? '请求宣判' : '直接揭晓'}
             </Button>
               </>
             )}
@@ -653,6 +691,29 @@ function GameControlPanel({
                       <div className="text-muted-foreground">卧底词</div>
                       <div className="mt-0.5 truncate font-semibold text-foreground">{revealedWordPair.undercoverWord}</div>
                     </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isHumanHuntMode && !isObserver && (
+              <div className="rounded-lg border border-[#c2410c]/30 bg-orange-50 p-3 dark:bg-orange-950/20">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold">本关结算</div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {humanHuntLevel ? humanHuntLevel.title : '谁是人类'}
+                    </div>
+                  </div>
+                  <div className={`flex-none rounded-full px-2 py-0.5 text-xs font-medium ${resultStars(result) > 0 ? 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400'}`}>
+                    {resultStars(result) > 0 ? '人类胜利' : 'AI 胜利'}
+                  </div>
+                </div>
+                {humanHuntLevel && (
+                  <div className="mt-2 flex text-[#c2410c]">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <Star key={index} className={`h-4 w-4 ${index < campaignStars ? 'fill-current' : 'opacity-25'}`} />
+                    ))}
                   </div>
                 )}
               </div>
@@ -721,17 +782,19 @@ function MobileActionCard({
   canReveal,
   campaignTimedOut,
   busy,
+  aiChatPending,
   revealed,
   isObserver,
   isJuryMode,
   isUndercoverMode,
-  result,
+  isHumanHuntMode,
   copied,
   effectiveStatus,
   onStart,
   onCopyShare,
   onNewGame,
   onReplay,
+  onAiChatRound,
   onConfirm,
   voteHint,
   voteOpen,
@@ -758,7 +821,7 @@ function MobileActionCard({
             <div className="text-xs text-muted-foreground">已入座 {players.length}/{room.max_players}</div>
           </div>
           <Button size="sm" onClick={onStart} disabled={busy || !currentPlayer} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
-            {busy ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />生成中…</> : <><Play className="mr-1 h-3.5 w-3.5" />开始</>}
+            {busy ? <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />准备中…</> : <><Play className="mr-1 h-3.5 w-3.5" />开始</>}
           </Button>
         </div>
         {!onReplay && (
@@ -850,11 +913,17 @@ function MobileActionCard({
           {!isJuryMode && (
             <Button onClick={() => setVoteOpen(true)} disabled={!canGuess} variant="outline" size="sm" className="h-10 flex-none">
               <Vote className="mr-1 h-3.5 w-3.5" />
-              投票
+              {isHumanHuntMode ? '投 AI' : '投票'}
+            </Button>
+          )}
+          {isHumanHuntMode && (
+            <Button onClick={onAiChatRound} disabled={busy || aiChatPending} variant="outline" size="sm" className="h-10 flex-none">
+              {aiChatPending ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Bot className="mr-1 h-3.5 w-3.5" />}
+              {aiChatPending ? '聊着' : '聊一下'}
             </Button>
           )}
           <Button onClick={() => onConfirm('reveal')} disabled={!canReveal || busy} variant="outline" size="sm" className="h-10 flex-none">
-            {isUndercoverMode ? '揭晓' : isJuryMode ? '请求宣判' : '揭晓'}
+            {isHumanHuntMode ? '揭晓' : isUndercoverMode ? '揭晓' : isJuryMode ? '请求宣判' : '揭晓'}
           </Button>
         </div>
         {voteHint && <div className="mt-1.5 text-xs text-muted-foreground">{voteHint}</div>}
@@ -866,9 +935,9 @@ function MobileActionCard({
     <div className="rounded-lg border bg-card p-3 shadow-sm md:hidden">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-sm font-medium">选择怀疑对象</div>
+          <div className="text-sm font-medium">{isHumanHuntMode ? '投出一个 AI' : '选择怀疑对象'}</div>
           <div className="truncate text-xs text-muted-foreground">
-            {selectedPlayer ? `当前选择：${selectedPlayer.display_name}` : '先选一个玩家再提交投票'}
+            {selectedPlayer ? `当前选择：${selectedPlayer.display_name}` : isHumanHuntMode ? '找出最像 AI 的角色' : '先选一个玩家再提交投票'}
           </div>
         </div>
         <Button onClick={() => setVoteOpen(false)} variant="ghost" size="sm" className="h-8 flex-none px-2">
@@ -918,13 +987,15 @@ function MobileActionCard({
 function AiGameHome() {
   const navigate = useNavigate();
   const challengeLevelNumber = typeof window !== 'undefined' ? parseChallengeLevel(window.location.search) : null;
-  const [homeSection, setHomeSection] = useState<'menu' | 'campaign' | 'practice'>(() => challengeLevelNumber ? 'campaign' : 'menu');
+  const humanChallengeLevelNumber = typeof window !== 'undefined' ? parseHumanHuntChallengeLevel(window.location.search) : null;
+  const [homeSection, setHomeSection] = useState<'menu' | 'campaign' | 'human_hunt' | 'practice'>(() => challengeLevelNumber ? 'campaign' : humanChallengeLevelNumber ? 'human_hunt' : 'menu');
   const [mode, setMode] = useState(aiGameModes[0].id);
   const [name, setName] = useState(localStorage.getItem('ai-game-name') || '');
   const [roomId, setRoomId] = useState('');
   const [creating, setCreating] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [campaignProgress] = useState<CampaignProgress>(() => loadCampaignProgress());
+  const [humanHuntProgress] = useState<CampaignProgress>(() => loadHumanHuntProgress());
 
   const [joining, setJoining] = useState(false);
 
@@ -935,6 +1006,12 @@ function AiGameHome() {
     return [generateCampaignLevel(challengeLevelNumber), ...levels].sort((a, b) => a.levelNumber - b.levelNumber);
   }, [campaignProgress.highestUnlockedLevel, challengeLevelNumber]);
   const clearedLevels = useMemo(() => Object.values(campaignProgress.bestStars).filter(stars => stars > 0).length, [campaignProgress.bestStars]);
+  const humanHuntLevels = useMemo(() => {
+    const levels = getHumanHuntLevels();
+    if (!humanChallengeLevelNumber || levels.some(level => level.levelNumber === humanChallengeLevelNumber)) return levels;
+    return [generateHumanHuntLevel(humanChallengeLevelNumber), ...levels].sort((a, b) => a.levelNumber - b.levelNumber);
+  }, [humanChallengeLevelNumber]);
+  const clearedHumanHuntLevels = useMemo(() => Object.values(humanHuntProgress.bestStars).filter(stars => stars > 0).length, [humanHuntProgress.bestStars]);
 
   const createRoom = async () => {
     setCreating(true);
@@ -1035,12 +1112,47 @@ function AiGameHome() {
     }
   };
 
+  const createHumanHuntRoom = async (level: AiGameHumanHuntLevel) => {
+    setCreating(true);
+    try {
+      const roomRes = await request('/api/ai-game/rooms', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: 'human_hunt',
+          title: `谁是人类 · ${level.title}`,
+          maxPlayers: level.maxPlayers,
+          aiCount: level.aiCount,
+          durationSeconds: level.durationSeconds,
+          campaignLevel: level.levelNumber,
+        }),
+      });
+      const roomData = await roomRes.json();
+      const newRoomId = roomData.data.roomId;
+      const joinRes = await request('/api/ai-game/join', {
+        method: 'POST',
+        body: JSON.stringify({ roomId: newRoomId, displayName: name || '玩家1' }),
+      });
+      const joinData = await joinRes.json();
+      localStorage.setItem(playerStorageKey(newRoomId), joinData.data.playerId);
+      localStorage.setItem(roomLevelStorageKey(newRoomId), `h${level.levelNumber}`);
+      localStorage.setItem('ai-game-name', name || '玩家1');
+      navigate(`/ai-game/${newRoomId}`);
+    } catch (error: any) {
+      toast.error(error.message || '关卡创建失败');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const isLevelUnlocked = (level: AiGameCampaignLevel) => level.levelNumber <= campaignProgress.highestUnlockedLevel || level.levelNumber === challengeLevelNumber;
+  const isHumanHuntLevelUnlocked = (level: AiGameHumanHuntLevel) => level.levelNumber <= humanHuntProgress.highestUnlockedLevel || level.levelNumber === humanChallengeLevelNumber;
 
   const shareGame = async () => {
     const url = buildAiGameChallengeUrl(window.location.href, null);
-    const title = '卧底晋级赛';
-    const text = '来玩一局谁是卧底，和一群 AI 玩家一起找卧底。';
+    const title = homeSection === 'human_hunt' ? '谁是人类' : '卧底晋级赛';
+    const text = homeSection === 'human_hunt'
+      ? '来玩一局谁是人类，藏进一群 AI 里别被找出来。'
+      : '来玩一局谁是卧底，和一群 AI 玩家一起找卧底。';
     try {
       if (navigator.share) {
         await navigator.share({ title, text, url });
@@ -1079,7 +1191,7 @@ function AiGameHome() {
         </div>
 
         {homeSection === 'menu' && (
-          <div className="grid flex-1 content-center gap-4 md:grid-cols-2">
+          <div className="grid flex-1 content-center gap-4 md:grid-cols-3">
             <button
               onClick={() => setHomeSection('campaign')}
               className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm transition-colors hover:bg-accent"
@@ -1103,6 +1215,24 @@ function AiGameHome() {
             </button>
 
             <button
+              onClick={() => setHomeSection('human_hunt')}
+              className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm transition-colors hover:bg-accent"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-[#c2410c]" />
+                  <h1 className="text-xl font-semibold tracking-normal">谁是人类</h1>
+                </div>
+                <div className="text-xs font-medium text-muted-foreground">回合制</div>
+              </div>
+              <p className="text-sm text-muted-foreground">你是唯一真人，混进 AI 群聊里自由聊天并活到最后。</p>
+              <div className="mt-4 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+                <div className="font-medium text-foreground">本地进度</div>
+                <div className="mt-1">最高第 {humanHuntProgress.highestUnlockedLevel} 关 · 已通关 {clearedHumanHuntLevels} 关</div>
+              </div>
+            </button>
+
+            <button
               onClick={() => setHomeSection('practice')}
               className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm transition-colors hover:bg-accent"
             >
@@ -1117,6 +1247,59 @@ function AiGameHome() {
               </div>
             </button>
           </div>
+        )}
+
+        {homeSection === 'human_hunt' && (
+        <section className="mb-6 rounded-lg border bg-card p-4 shadow-sm md:p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-[#c2410c]" />
+                <h1 className="text-lg font-semibold tracking-normal">谁是人类</h1>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">没有倒计时。自由聊天、主动投票淘汰 AI，别被 AI 找出来。</p>
+            </div>
+            <div className="hidden rounded-lg bg-muted px-3 py-2 text-right text-xs text-muted-foreground md:block">
+              <div className="font-medium text-foreground">本地进度</div>
+              <div>最高第 {humanHuntProgress.highestUnlockedLevel} 关 · 已通关 {clearedHumanHuntLevels} 关</div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {humanHuntLevels.map((level) => {
+              const stars = humanHuntProgress.bestStars[String(level.levelNumber)] || 0;
+              const unlocked = isHumanHuntLevelUnlocked(level);
+              return (
+                <button
+                  key={level.id}
+                  onClick={() => unlocked && createHumanHuntRoom(level)}
+                  disabled={!unlocked || creating}
+                  className={`min-w-0 rounded-lg border p-3 text-left transition-colors ${unlocked ? 'bg-background hover:bg-accent' : 'cursor-not-allowed bg-muted/60 opacity-70'} ${stars ? 'border-[#c2410c]/50' : ''}`}
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium text-muted-foreground">{level.chapter}</div>
+                    {unlocked ? (
+                      <div className="flex text-[#c2410c]">
+                        {Array.from({ length: 3 }).map((_, starIndex) => (
+                          <Star key={starIndex} className={`h-3.5 w-3.5 ${starIndex < stars ? 'fill-current' : 'opacity-30'}`} />
+                        ))}
+                      </div>
+                    ) : (
+                      <Lock className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="truncate text-sm font-semibold">{level.levelNumber}. {level.title}</div>
+                  <p className="mt-1 line-clamp-2 min-h-10 text-xs text-muted-foreground">{level.description}</p>
+                  <div className="mt-3 flex items-center justify-between text-xs">
+                    <span className="rounded-md bg-muted px-2 py-1">难度 {level.difficulty}</span>
+                    <span className="text-muted-foreground">1 真人 · {level.aiCount} AI</span>
+                  </div>
+                  <div className="mt-2 truncate text-xs text-[#c2410c]">{level.modifier}</div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
         )}
 
         {homeSection === 'campaign' && (
@@ -1263,6 +1446,7 @@ function AiGameRoom() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [votingPending, setVotingPending] = useState(false);
+  const [aiChatPending, setAiChatPending] = useState(false);
   const [postGameReviewPending, setPostGameReviewPending] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'vote' | 'reveal' | null>(null);
@@ -1284,8 +1468,15 @@ function AiGameRoom() {
     return messages.filter(message => message.sender_type === 'ai' && message.id > latestOwnDescriptionId).length;
   }, [latestOwnDescriptionId, messages]);
   const campaignLevel = useMemo(() => {
+    if (campaignLevelId.startsWith('h')) return null;
     const levelNumber = Number(campaignLevelId.replace(/^u/, ''));
     return Number.isFinite(levelNumber) && levelNumber > 0 ? generateCampaignLevel(levelNumber) : null;
+  }, [campaignLevelId]);
+  const humanHuntLevel = useMemo(() => {
+    const levelNumber = Number(campaignLevelId.replace(/^h/, ''));
+    return campaignLevelId.startsWith('h') && Number.isFinite(levelNumber) && levelNumber > 0
+      ? generateHumanHuntLevel(levelNumber)
+      : null;
   }, [campaignLevelId]);
   const candidatePlayers = useMemo(() => players.filter(player => player.player_type !== 'observer'), [players]);
   const activeCandidatePlayers = useMemo(() => candidatePlayers.filter(player => !player.eliminated_at), [candidatePlayers]);
@@ -1294,7 +1485,7 @@ function AiGameRoom() {
   const endsAt = startedAt && room ? new Date(startedAt.getTime() + room.duration_seconds * 1000) : null;
   const [now, setNow] = useState(Date.now());
   const secondsLeft = endsAt ? Math.max(0, Math.ceil((endsAt.getTime() - now) / 1000)) : room?.duration_seconds || 0;
-  const effectiveStatus = room?.status === 'playing' && secondsLeft <= 0 && room.mode !== 'jury' && room.mode !== 'undercover' ? 'voting' : room?.status;
+  const effectiveStatus = room?.status === 'playing' && secondsLeft <= 0 && room.mode !== 'jury' && room.mode !== 'undercover' && room.mode !== 'human_hunt' ? 'voting' : room?.status;
 
   useEffect(() => {
     setPlayerId(localStorage.getItem(playerStorageKey(roomId)) || '');
@@ -1308,6 +1499,7 @@ function AiGameRoom() {
     setResult(null);
     setCurrentPlayerSecret(null);
     setVotingPending(false);
+    setAiChatPending(false);
     setPostGameReviewPending(false);
     lastMessageIdRef.current = 0;
     setMessages([]);
@@ -1320,7 +1512,10 @@ function AiGameRoom() {
     const loadedRoom = data.data.room;
     setRoom(loadedRoom);
     if (!localStorage.getItem(roomLevelStorageKey(roomId)) && Number(loadedRoom?.campaign_level) > 0) {
-      setCampaignLevelId(String(loadedRoom.campaign_level));
+      const levelValue = loadedRoom?.mode === 'human_hunt'
+        ? `h${loadedRoom.campaign_level}`
+        : String(loadedRoom.campaign_level);
+      setCampaignLevelId(levelValue);
     }
     setPlayers(data.data.players || []);
     setResult(data.data.result || null);
@@ -1385,6 +1580,19 @@ function AiGameRoom() {
     saveCampaignProgress(progress);
   }, [campaignLevel, result, room?.status]);
 
+  useEffect(() => {
+    if (!humanHuntLevel || !result || (room?.status !== 'revealed' && room?.status !== 'archived')) return;
+    const stars = resultStars(result);
+    if (stars <= 0) return;
+    const progress = loadHumanHuntProgress();
+    const levelKey = String(humanHuntLevel.levelNumber);
+    if ((progress.bestStars[levelKey] || 0) >= stars && progress.highestUnlockedLevel >= humanHuntLevel.levelNumber + 1) return;
+    progress.bestStars[levelKey] = Math.max(progress.bestStars[levelKey] || 0, stars);
+    progress.clearedAt[levelKey] = new Date().toISOString();
+    progress.highestUnlockedLevel = Math.max(progress.highestUnlockedLevel, Math.min(9, humanHuntLevel.levelNumber + 1));
+    saveHumanHuntProgress(progress);
+  }, [humanHuntLevel, result, room?.status]);
+
   const join = async () => {
     if (!roomId) return;
     setBusy(true);
@@ -1442,8 +1650,13 @@ function AiGameRoom() {
     setBusy(true);
     try {
       await request('/api/ai-game/start', { method: 'POST', body: JSON.stringify({ roomId, playerId: currentPlayer.id }) });
-      await loadRoom();
+      const loadedRoom = await loadRoom();
       await loadMessages();
+      if (loadedRoom?.mode === 'human_hunt') {
+        await request('/api/ai-game/ai-turn', { method: 'POST', body: JSON.stringify({ roomId }) });
+        await loadMessages();
+        await loadRoom();
+      }
     } catch (error: any) {
       toast.error(error.message || '开始失败');
     } finally {
@@ -1463,10 +1676,28 @@ function AiGameRoom() {
       await loadMessages();
       request('/api/ai-game/ai-turn', { method: 'POST', body: JSON.stringify({ roomId }) })
         .then(() => loadMessages())
+        .then(() => loadRoom())
         .catch((error) => toast.error(error.message || 'AI 暂时没接上话'));
     } catch (error: any) {
       setInput(content);
       toast.error(error.message || '发送失败');
+    }
+  };
+
+  const requestAiChatRound = async () => {
+    if (!roomId || currentStatus !== 'playing') return;
+    setAiChatPending(true);
+    try {
+      await request('/api/ai-game/ai-turn', {
+        method: 'POST',
+        body: JSON.stringify({ roomId, force: true }),
+      });
+      await loadMessages();
+      await loadRoom();
+    } catch (error: any) {
+      toast.error(error.message || 'AI 暂时没接上话');
+    } finally {
+      setAiChatPending(false);
     }
   };
 
@@ -1503,6 +1734,11 @@ function AiGameRoom() {
       await loadMessages();
       if (loadedRoom?.status === 'revealed' || loadedRoom?.status === 'archived') {
         await requestPostGameReviews();
+      } else if (loadedRoom?.mode === 'human_hunt' && loadedRoom?.status === 'playing') {
+        request('/api/ai-game/ai-turn', { method: 'POST', body: JSON.stringify({ roomId }) })
+          .then(() => loadMessages())
+          .then(() => loadRoom())
+          .catch((error) => toast.error(error.message || 'AI 暂时没接上话'));
       }
     } catch (error: any) {
       toast.error(error.message || '投票失败');
@@ -1584,6 +1820,38 @@ function AiGameRoom() {
     }
   };
 
+  const createHumanHuntRoomFromLevel = async (level: AiGameHumanHuntLevel) => {
+    setBusy(true);
+    try {
+      const roomRes = await request('/api/ai-game/rooms', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: 'human_hunt',
+          title: `谁是人类 · ${level.title}`,
+          maxPlayers: level.maxPlayers,
+          aiCount: level.aiCount,
+          durationSeconds: level.durationSeconds,
+          campaignLevel: level.levelNumber,
+        }),
+      });
+      const roomData = await roomRes.json();
+      const newRoomId = roomData.data.roomId;
+      const joinRes = await request('/api/ai-game/join', {
+        method: 'POST',
+        body: JSON.stringify({ roomId: newRoomId, displayName: name || '玩家1' }),
+      });
+      const joinData = await joinRes.json();
+      localStorage.setItem(playerStorageKey(newRoomId), joinData.data.playerId);
+      localStorage.setItem(roomLevelStorageKey(newRoomId), `h${level.levelNumber}`);
+      localStorage.setItem('ai-game-name', name || '玩家1');
+      navigate(`/ai-game/${newRoomId}`);
+    } catch (error: any) {
+      toast.error(error.message || '关卡创建失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!room) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
@@ -1597,34 +1865,44 @@ function AiGameRoom() {
   const isObserver = currentPlayer?.player_type === 'observer';
   const isJuryMode = room.mode === 'jury';
   const isUndercoverMode = room.mode === 'undercover';
+  const isHumanHuntMode = room.mode === 'human_hunt';
+  const humanHuntTurnState = isHumanHuntMode ? getHumanHuntTurnState(players, messages) : null;
   const currentPlayerEliminated = !!currentPlayer?.eliminated_at;
   const isParticipant = !!currentPlayer && !isObserver;
   const campaignTimedOut = !!campaignLevel && !revealed && room.status === 'playing' && secondsLeft <= 0;
   const activeAiCount = activeCandidatePlayers.filter(player => player.player_type === 'ai').length;
   const needsDescriptionBeforeVote = isUndercoverMode && latestOwnDescriptionId <= latestUndercoverVoteResultId;
   const needsAiRoundBeforeVote = isUndercoverMode && !needsDescriptionBeforeVote && aiMessagesAfterOwnDescriptionCount < Math.max(1, activeAiCount);
-  const canVote = isParticipant && !currentPlayerEliminated && (currentStatus === 'playing' || currentStatus === 'voting') && !revealed && !needsDescriptionBeforeVote && !needsAiRoundBeforeVote && !campaignTimedOut;
+  const humanHuntCanVote = !isHumanHuntMode || !!humanHuntTurnState?.canVote;
+  const canVote = isParticipant && !currentPlayerEliminated && (isHumanHuntMode ? currentStatus === 'playing' || currentStatus === 'voting' : (currentStatus === 'playing' || currentStatus === 'voting')) && !revealed && !needsDescriptionBeforeVote && !needsAiRoundBeforeVote && !campaignTimedOut && humanHuntCanVote;
   const canSpeak = isParticipant && !currentPlayerEliminated && currentStatus === 'playing' && !campaignTimedOut;
-  const canReveal = isParticipant && !campaignLevel && !campaignTimedOut;
+  const canReveal = isParticipant && !campaignLevel && !isHumanHuntMode && !campaignTimedOut;
   const canGuess = canVote && !isJuryMode;
   const voteHint = needsDescriptionBeforeVote
     ? (latestUndercoverVoteResultId > 0 ? '上一轮已完成投票，请先继续描述或追问后再投下一轮。' : '先描述你的词或追问一次，再进行投票。')
     : needsAiRoundBeforeVote
       ? '请等 AI 完成本轮描述后再投票。'
+      : isHumanHuntMode && currentStatus === 'playing'
+        ? humanHuntTurnState?.canVote
+          ? '可以发起投票，也可以继续自由聊。'
+          : `再聊几句后投票，本轮至少需要 ${humanHuntTurnState?.minSpeechCount || activeCandidatePlayers.length} 条发言，且 ${humanHuntTurnState?.minUniqueSpeakerCount || activeCandidatePlayers.length} 人发过言。`
       : undefined;
   const statusText = (() => {
     if (campaignTimedOut) return '挑战失败';
     if (revealed) return isJuryMode ? '已宣判' : '已揭晓';
     if (currentStatus === 'waiting') return '等待开局';
+    if (isHumanHuntMode && currentStatus === 'playing') return humanHuntTurnState?.round ? `第 ${humanHuntTurnState.round} 轮自由聊` : '自由聊';
+    if (isHumanHuntMode && currentStatus === 'voting') return '投票中';
     if (isJuryMode && currentStatus === 'playing') return secondsLeft > 0 ? `庭审剩余 ${secondsLeft}s` : '可请求宣判';
     if (isUndercoverMode && currentStatus === 'playing') return '进行中';
     if (currentStatus === 'playing') return `剩余 ${secondsLeft}s`;
     if (currentStatus === 'voting') return '投票中';
     return '进行中';
   })();
-  const showHeaderCountdown = currentStatus === 'playing' && !revealed && !campaignTimedOut && startedAt && room;
+  const showHeaderCountdown = !isHumanHuntMode && currentStatus === 'playing' && !revealed && !campaignTimedOut && startedAt && room;
   const nextCampaignLevel = campaignLevel ? generateCampaignLevel(campaignLevel.levelNumber + 1) : undefined;
-  const campaignStars = campaignLevel && result && revealed ? resultStars(result) : 0;
+  const nextHumanHuntLevel = humanHuntLevel && humanHuntLevel.levelNumber < 9 ? generateHumanHuntLevel(humanHuntLevel.levelNumber + 1) : undefined;
+  const campaignStars = (campaignLevel || humanHuntLevel) && result && revealed ? resultStars(result) : 0;
   const controlPanelProps = {
     room,
     modeRules,
@@ -1640,24 +1918,30 @@ function AiGameRoom() {
     canReveal,
     campaignTimedOut,
     busy,
+    aiChatPending,
     revealed,
     isObserver,
     isJuryMode,
     isUndercoverMode,
+    isHumanHuntMode,
     result,
     campaignLevel,
+    humanHuntLevel,
     campaignStars,
     copied,
     onStart: start,
     onCopyShare: copyShare,
     onNewGame: () => navigate('/ai-game'),
-    onReplay: campaignLevel ? () => createCampaignRoomFromLevel(campaignLevel) : undefined,
-    onNextCampaign: campaignStars > 0 && nextCampaignLevel ? () => createCampaignRoomFromLevel(nextCampaignLevel) : undefined,
+    onReplay: campaignLevel ? () => createCampaignRoomFromLevel(campaignLevel) : humanHuntLevel ? () => createHumanHuntRoomFromLevel(humanHuntLevel) : undefined,
+    onNextCampaign: campaignStars > 0 && nextCampaignLevel ? () => createCampaignRoomFromLevel(nextCampaignLevel) : campaignStars > 0 && nextHumanHuntLevel ? () => createHumanHuntRoomFromLevel(nextHumanHuntLevel) : undefined,
+    onAiChatRound: isHumanHuntMode ? requestAiChatRound : undefined,
     onConfirm: (action: 'vote' | 'reveal') => setConfirmAction(action),
     voteHint,
   };
   const challengeUrl = typeof window !== 'undefined'
-    ? buildAiGameChallengeUrl(window.location.href, campaignLevel?.levelNumber)
+    ? humanHuntLevel
+      ? buildHumanHuntChallengeUrl(window.location.href, humanHuntLevel.levelNumber)
+      : buildAiGameChallengeUrl(window.location.href, campaignLevel?.levelNumber)
     : '';
   const hasGameOverMessage = messages.some(message =>
     message.sender_type === 'system'
@@ -1665,15 +1949,19 @@ function AiGameRoom() {
     && (message.content.includes('游戏结束') || message.content.includes('身份已揭晓'))
   );
   const renderCampaignSettlementCard = () => {
-    if (!campaignLevel || !revealed || !result) return null;
+    if ((!campaignLevel && !humanHuntLevel) || !revealed || !result) return null;
     const wordPair = extractUndercoverWordPair(result.summary);
+    const title = humanHuntLevel ? humanHuntLevel.title : campaignLevel?.title || '';
+    const heading = humanHuntLevel ? '谁是人类结算' : '晋级赛结算';
+    const successText = humanHuntLevel ? '人类伪装成功，下一关已解锁。' : '通关成功，下一关已解锁。';
+    const failText = humanHuntLevel ? '这关被 AI 找出来了，重玩一次控制发言细节。' : '这关还没通关，重玩一次调整发言和投票策略。';
     return (
       <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-300 md:hidden">
         <div className="mx-auto max-w-sm rounded-lg border bg-card p-3 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm font-semibold">晋级赛结算</div>
-              <div className="truncate text-xs text-muted-foreground">{campaignLevel.title}</div>
+              <div className="text-sm font-semibold">{heading}</div>
+              <div className="truncate text-xs text-muted-foreground">{title}</div>
             </div>
             <div className="flex text-[#c2410c]">
               {Array.from({ length: 3 }).map((_, index) => (
@@ -1682,7 +1970,7 @@ function AiGameRoom() {
             </div>
           </div>
           <div className="rounded-lg bg-muted px-3 py-2 text-sm">
-            {campaignStars > 0 ? '通关成功，下一关已解锁。' : '这关还没通关，重玩一次调整发言和投票策略。'}
+            {campaignStars > 0 ? successText : failText}
           </div>
           {wordPair && (
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
@@ -1698,11 +1986,23 @@ function AiGameRoom() {
           )}
           {!isObserver && (
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <Button variant="outline" size="sm" onClick={() => createCampaignRoomFromLevel(campaignLevel)} disabled={busy}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (campaignLevel) createCampaignRoomFromLevel(campaignLevel);
+                  else if (humanHuntLevel) createHumanHuntRoomFromLevel(humanHuntLevel);
+                }}
+                disabled={busy}
+              >
                 重玩
               </Button>
               {campaignStars > 0 && nextCampaignLevel ? (
                 <Button size="sm" onClick={() => createCampaignRoomFromLevel(nextCampaignLevel)} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                  下一关
+                </Button>
+              ) : campaignStars > 0 && nextHumanHuntLevel ? (
+                <Button size="sm" onClick={() => createHumanHuntRoomFromLevel(nextHumanHuntLevel)} disabled={busy} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
                   下一关
                 </Button>
               ) : (
@@ -1754,7 +2054,7 @@ function AiGameRoom() {
           </Button>
         </header>
 
-        {effectiveStatus === 'playing' && startedAt && room && (
+        {effectiveStatus === 'playing' && !isHumanHuntMode && startedAt && room && (
           <div className="h-1 w-full bg-muted">
             <div
               className="h-full transition-all duration-1000 ease-linear"
@@ -1774,6 +2074,21 @@ function AiGameRoom() {
           <section className="flex min-w-0 min-h-0 flex-col bg-muted">
             <div className="min-w-0 flex-1 overflow-y-auto px-2 py-2 md:px-3 md:py-3">
               <div className="mx-auto max-w-3xl min-w-0 space-y-3">
+                {isHumanHuntMode && currentStatus === 'playing' && humanHuntTurnState?.round > 0 && (
+                  <div className="sticky top-0 z-10 rounded-lg border border-[#c2410c]/30 bg-orange-50 px-3 py-2 text-sm shadow-sm dark:bg-orange-950/20">
+                    <div className="text-xs text-muted-foreground">第 {humanHuntTurnState.round} 轮自由讨论</div>
+                    <div className="mt-0.5 font-medium text-[#c2410c]">
+                      {humanHuntTurnState.speechCount}/{humanHuntTurnState.minSpeechCount} 条 · {humanHuntTurnState.uniqueSpeakerCount}/{humanHuntTurnState.minUniqueSpeakerCount} 人后可投票
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {humanHuntTurnState.currentSpeaker
+                        ? `${humanHuntTurnState.currentSpeaker.display_name} 先开场`
+                        : humanHuntTurnState.canVote
+                          ? '可以投票，也可以继续聊'
+                          : '自由发言中'}
+                    </div>
+                  </div>
+                )}
                 {messages.length === 0 && (
                   <div className="flex h-56 flex-col items-center justify-center text-center text-muted-foreground">
                     <Eye className="mb-3 h-8 w-8" />
@@ -1787,7 +2102,7 @@ function AiGameRoom() {
                   if (system) {
                     const isVoteResult = message.content.startsWith('投票完成');
                     const isGameOver = isVoteResult && (message.content.includes('游戏结束') || message.content.includes('身份已揭晓'));
-                    const isGameStart = message.content.startsWith('游戏开始') || message.content.startsWith('开庭') || message.content.startsWith('单人鉴定');
+                    const isGameStart = message.content.startsWith('游戏开始') || message.content.startsWith('谁是人类开始') || message.content.startsWith('开庭') || message.content.startsWith('单人鉴定');
                     const isElimination = message.content.includes('出局') && !isGameOver;
 
                     if (isGameOver) {
@@ -1934,6 +2249,12 @@ function AiGameRoom() {
                     AI 正在投票，等待结果…
                   </div>
                 )}
+                {aiChatPending && (
+                  <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    AI 正在聊天…
+                  </div>
+                )}
                 {postGameReviewPending && (
                   <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -1961,7 +2282,7 @@ function AiGameRoom() {
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={(event) => { if (event.key === 'Enter') send(); }}
-                    placeholder={currentPlayerEliminated ? '你已出局，可以继续观看本局' : isUndercoverMode ? '描述你的词，别直接说出词语...' : isJuryMode ? '为自己辩护，或者反问证人...' : isObserver ? '向候选玩家提一个问题...' : currentPlayer ? '自然点，别像 AI...' : '你正在围观本局'}
+                    placeholder={currentPlayerEliminated ? '你已出局，可以继续观看本局' : isHumanHuntMode ? '自由聊，试探别人，也别太像真人...' : isUndercoverMode ? '描述你的词，别直接说出词语...' : isJuryMode ? '为自己辩护，或者反问证人...' : isObserver ? '向候选玩家提一个问题...' : currentPlayer ? '自然点，别像 AI...' : '你正在围观本局'}
                     disabled={!canSpeak}
                     maxLength={500}
                   />
@@ -1989,7 +2310,9 @@ function AiGameRoom() {
             </DialogTitle>
             <DialogDescription>
               {confirmAction === 'vote'
-                ? `确定要投给「${candidatePlayers.find(p => p.id === selectedVote)?.display_name || '该玩家'}」吗？投票后不可撤回。`
+                ? isHumanHuntMode
+                  ? `确定要投出「${candidatePlayers.find(p => p.id === selectedVote)?.display_name || '该玩家'}」吗？目标是淘汰 AI，投票后不可撤回。`
+                  : `确定要投给「${candidatePlayers.find(p => p.id === selectedVote)?.display_name || '该玩家'}」吗？投票后不可撤回。`
                 : '揭晓后将公布所有玩家身份，本局结束。确定要揭晓吗？'}
             </DialogDescription>
           </DialogHeader>
@@ -2020,6 +2343,7 @@ function AiGameRoom() {
           room={room}
           result={result}
           campaignLevel={campaignLevel}
+          humanHuntLevel={humanHuntLevel}
           campaignStars={campaignStars}
           currentPlayerSecret={currentPlayerSecret}
           challengeUrl={challengeUrl}

@@ -21,6 +21,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (isCampaignRoom(room)) {
       return json({ success: false, message: '闯关模式不能直接揭晓身份' }, 400);
     }
+    if (room.mode === 'human_hunt') {
+      return json({ success: false, message: '谁是人类需要通过投票结算，不能直接揭晓身份' }, 400);
+    }
 
     const players = await getPlayers(db, roomId, true);
     const votesResult = await db.prepare(

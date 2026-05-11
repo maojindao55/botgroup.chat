@@ -1,8 +1,9 @@
-import { generateUndercoverVote, getPlayers, getRoom, json, parseUndercoverMeta } from '../../utils/aiGame';
+import { formatHumanHuntRoundStart, generateHumanHuntVote, generateUndercoverVote, getHumanHuntRoundNumber, getHumanHuntTurnState, getPlayers, getRoom, json, parseUndercoverMeta } from '../../utils/aiGame';
 import { calculateCampaignStars } from '../../utils/aiGameCampaignResult';
 import { isCampaignRoom } from '../../utils/aiGameCampaign';
 import { evaluateUndercoverRound, isPlayerVoteDirectionCorrect } from '../../utils/aiGameUndercoverRules';
 import { canSubmitUndercoverVoteThisRound } from '../../utils/aiGameVoteFlow';
+import { resolveUniqueTopVote } from '../../utils/aiGameVoteTally';
 
 interface Env {
   bgdb: D1Database;
@@ -39,6 +40,146 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (voter.eliminated_at) return json({ success: false, message: '你已出局，不能投票' }, 403);
     if (target.player_type === 'observer') return json({ success: false, message: '不能投观察者' }, 400);
     if (target.eliminated_at) return json({ success: false, message: '不能投已出局玩家' }, 400);
+
+    if (room.mode === 'human_hunt') {
+      if (room.status !== 'playing' && room.status !== 'voting') return json({ success: false, message: '当前不能投票' }, 400);
+
+      const players = await getPlayers(db, roomId, true);
+      const activePlayers = players.filter((player: any) => player.player_type !== 'observer' && !player.eliminated_at);
+      const humanPlayer = activePlayers.find((player: any) => player.player_type === 'human');
+      const messagesResult = await db.prepare(
+        `SELECT id, room_id, player_id, sender_name, sender_type, content, created_at
+         FROM ai_game_messages
+         WHERE room_id = ?
+         ORDER BY id ASC`
+      ).bind(roomId).all();
+      const messages = messagesResult.results || [];
+      const turnState = getHumanHuntTurnState(players, messages);
+      if (!turnState.canVote) {
+        return json({ success: false, message: `再聊几句后投票，本轮至少需要 ${turnState.minSpeechCount || activePlayers.length} 条发言，且 ${turnState.minUniqueSpeakerCount || activePlayers.length} 人发过言` }, 400);
+      }
+
+      await db.prepare(`DELETE FROM ai_game_votes WHERE room_id = ?`).bind(roomId).run();
+      await db.prepare(
+        `INSERT INTO ai_game_votes (room_id, voter_player_id, target_player_id, reason, created_at)
+         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`
+      ).bind(roomId, voterPlayerId, targetPlayerId, reason?.trim().slice(0, 120) || '').run();
+
+      const voteLines = [];
+      const humanTarget = players.find((player: any) => player.id === targetPlayerId);
+      if (humanTarget) voteLines.push(`${voter.display_name || '玩家'} -> ${humanTarget.display_name}`);
+
+      const aiPlayers = activePlayers.filter((player: any) => player.player_type === 'ai');
+      for (const aiPlayer of aiPlayers) {
+        const aiTarget = await generateHumanHuntVote(context.env, aiPlayer, activePlayers, messages, '自由讨论');
+        if (!aiTarget) continue;
+        await db.prepare(
+          `INSERT INTO ai_game_votes (room_id, voter_player_id, target_player_id, reason, created_at)
+           VALUES (?, ?, ?, 'ai-auto', CURRENT_TIMESTAMP)`
+        ).bind(roomId, aiPlayer.id, aiTarget.id).run();
+        voteLines.push(`${aiPlayer.display_name} -> ${aiTarget.display_name}`);
+      }
+
+      const currentVotes = await db.prepare(
+        `SELECT v.*, voter.display_name as voter_name, target.display_name as target_name, target.player_type as target_player_type
+         FROM ai_game_votes v
+         LEFT JOIN ai_game_players voter ON voter.id = v.voter_player_id
+         LEFT JOIN ai_game_players target ON target.id = v.target_player_id
+         WHERE v.room_id = ?`
+      ).bind(roomId).all();
+      const votes = currentVotes.results || [];
+      const voteResult = resolveUniqueTopVote(votes as Array<{ target_player_id?: string | null }>);
+      const eliminated = voteResult.targetId
+        ? activePlayers.find((player: any) => player.id === voteResult.targetId)
+        : null;
+      const roundNumber = getHumanHuntRoundNumber(messages) || 1;
+
+      if (!eliminated) {
+        const nextRound = roundNumber + 1;
+        const tiedNames = voteResult.tiedTargetIds
+          .map((targetId) => activePlayers.find((player: any) => player.id === targetId)?.display_name)
+          .filter(Boolean)
+          .join('、') || '无人';
+        await db.prepare(
+          `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)
+           VALUES (?, 'system', '系统', 'system', ?, CURRENT_TIMESTAMP)`
+        ).bind(roomId, `投票完成：${voteLines.join('，')}。最高票并列（${tiedNames}），本轮无人出局，进入下一轮。`).run();
+        await db.prepare(`UPDATE ai_game_rooms SET status = 'playing' WHERE id = ?`)
+          .bind(roomId).run();
+        const nextRoundStart = formatHumanHuntRoundStart(roomId, nextRound, activePlayers, false);
+        await db.prepare(
+          `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)
+           VALUES (?, 'system', '系统', 'system', ?, CURRENT_TIMESTAMP)`
+        ).bind(roomId, nextRoundStart.content).run();
+        return json({ success: true });
+      }
+
+      await db.prepare(`UPDATE ai_game_players SET eliminated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+        .bind(eliminated.id).run();
+
+      const remainingAfterElimination = activePlayers.filter((player: any) => player.id !== eliminated.id);
+      const remainingAiCount = remainingAfterElimination.filter((player: any) => player.player_type === 'ai').length;
+      const humanEliminated = eliminated.player_type === 'human';
+      const humanWin = !humanEliminated && remainingAiCount <= 1;
+      const gameOver = humanEliminated || humanWin;
+
+      const roundMessage = humanEliminated
+        ? `投票完成：${voteLines.join('，')}。多数票投出 ${eliminated.display_name}，AI 找到了人类，游戏结束，身份已揭晓。`
+        : humanWin
+          ? `投票完成：${voteLines.join('，')}。多数票投出 ${eliminated.display_name}，场上只剩 1 个 AI 和 1 个真人，人类胜利，游戏结束，身份已揭晓。`
+          : `投票完成：${voteLines.join('，')}。多数票投出 ${eliminated.display_name}，身份暂不公布，进入下一轮。`;
+      await db.prepare(
+        `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)
+         VALUES (?, 'system', '系统', 'system', ?, CURRENT_TIMESTAMP)`
+      ).bind(roomId, roundMessage).run();
+
+      if (gameOver) {
+        const votesAgainstHuman = humanPlayer
+          ? votes.filter((vote: any) => vote.target_player_id === humanPlayer.id).length
+          : votes.filter((vote: any) => vote.target_player_type === 'human').length;
+        const aiVoteCount = Math.max(1, aiPlayers.length);
+        const stars = humanWin
+          ? votesAgainstHuman === 0
+            ? 3
+            : votesAgainstHuman <= Math.ceil(aiVoteCount / 3)
+              ? 2
+              : 1
+          : 0;
+        const eliminatedAiNames = players
+          .filter((player: any) => player.player_type === 'ai' && (player.eliminated_at || player.id === eliminated.id))
+          .map((player: any) => player.display_name)
+          .join('、') || '无';
+        const summary = humanWin
+          ? `闯关成功，获得 ${stars} 星。你是唯一人类，撑过 ${roundNumber} 轮发言，淘汰过的 AI：${eliminatedAiNames}。最后一轮有 ${votesAgainstHuman} 票投向你，伪装成功。`
+          : `闯关失败。你是唯一人类，第 ${roundNumber} 轮被多数票投出，AI 阵营获胜。淘汰过的 AI：${eliminatedAiNames}。`;
+        const shareText = humanWin
+          ? `我在谁是人类里从 ${Number(room.ai_count || 0)} 个 AI 中藏到了最后，拿到 ${stars} 星。`
+          : `我在谁是人类里被 AI 找出来了，第 ${roundNumber} 轮暴露。`;
+        await db.prepare(
+          `INSERT INTO ai_game_results (room_id, human_accuracy, ai_escape_rate, best_disguised_player_id, summary, share_text, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(room_id) DO UPDATE SET
+             human_accuracy = excluded.human_accuracy,
+             ai_escape_rate = excluded.ai_escape_rate,
+             best_disguised_player_id = excluded.best_disguised_player_id,
+             summary = excluded.summary,
+             share_text = excluded.share_text`
+        ).bind(roomId, stars / 3, humanWin ? 0 : 1, humanWin ? humanPlayer?.id || null : eliminated.id, summary, shareText).run();
+        await db.prepare(`UPDATE ai_game_rooms SET status = 'revealed', ended_at = CURRENT_TIMESTAMP WHERE id = ?`)
+          .bind(roomId).run();
+      } else {
+        const nextRound = roundNumber + 1;
+        await db.prepare(`UPDATE ai_game_rooms SET status = 'playing' WHERE id = ?`)
+          .bind(roomId).run();
+        const nextRoundStart = formatHumanHuntRoundStart(roomId, nextRound, remainingAfterElimination, false);
+        await db.prepare(
+          `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)
+           VALUES (?, 'system', '系统', 'system', ?, CURRENT_TIMESTAMP)`
+        ).bind(roomId, nextRoundStart.content).run();
+      }
+
+      return json({ success: true });
+    }
 
     if (room.mode === 'undercover') {
       const activeAiCountRow = await db.prepare(

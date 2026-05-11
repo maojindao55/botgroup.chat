@@ -54,12 +54,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     };
     const mode = normalizeGameMode(body.mode);
     const defaults = defaultsForMode(mode);
-    const maxPlayers = Math.max(3, Math.min(Number(body.maxPlayers || defaults.maxPlayers), 8));
+    const maxPlayerLimit = mode === 'human_hunt' ? 11 : 8;
+    const maxPlayers = Math.max(3, Math.min(Number(body.maxPlayers || defaults.maxPlayers), maxPlayerLimit));
     const aiCount = Math.max(1, Math.min(Number(body.aiCount || defaults.aiCount), maxPlayers - 1));
     const durationSeconds = Math.max(60, Math.min(Number(body.durationSeconds || defaults.durationSeconds), 600));
     const roomId = `game-${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`;
     const userId = (context as any).data?.user?.userId || null;
-    const rawTitle = body.title?.trim() || (mode === 'undercover' ? '谁是卧底' : mode === 'jury' ? 'AI 陪审团' : mode === 'solo' ? '单人鉴定官' : mode === 'reverse' ? '反向图灵局' : mode === 'topic' ? '主题卧底局' : '谁是 AI 经典局');
+    const rawTitle = body.title?.trim() || (mode === 'undercover' ? '谁是卧底' : mode === 'human_hunt' ? '谁是人类' : mode === 'jury' ? 'AI 陪审团' : mode === 'solo' ? '单人鉴定官' : mode === 'reverse' ? '反向图灵局' : mode === 'topic' ? '主题卧底局' : '谁是 AI 经典局');
     const campaignLevel = Math.max(0, Math.floor(Number(body.campaignLevel) || 0)) || null;
     const campaignRoom = isCampaignRoom({ mode, title: rawTitle, campaign_level: campaignLevel });
     const wordTier = campaignRoom ? normalizeCampaignWordTier(body.wordTier) : null;

@@ -20,7 +20,7 @@ function parseUndercoverRole(raw?: string | null) {
 export function parseVoteResultMessage(content: string): ParsedVoteResultMessage {
   const votePart = content.match(/投票完成：(.*?)。/)?.[1] || '';
   const resultPart = content.replace(/投票完成：.*?。/, '').replace(/^投票完成：/, '');
-  const eliminatedName = resultPart.match(/多数票投出\s*([^，。]+)/)?.[1]?.trim() || null;
+  const eliminatedName = resultPart.match(/(?:多数票|最高票)投出\s*([^，。]+)/)?.[1]?.trim() || null;
 
   return {
     votes: votePart.split(/[，,]/).map((item) => {

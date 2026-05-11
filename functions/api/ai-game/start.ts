@@ -1,4 +1,4 @@
-import { encodeUndercoverMeta, getDynamicUndercoverPair, getJuryRoles, getPlayers, getRoom, json, pickAiName, pickJuryCase, pickPersona, pickUndercoverPair } from '../../utils/aiGame';
+import { encodeUndercoverMeta, formatHumanHuntRoundStart, formatNumberedPlayerName, getDynamicUndercoverPair, getJuryRoles, getPlayers, getRoom, json, pickAiName, pickJuryCase, pickPersona, pickUndercoverPair, sortHumanHuntSeats } from '../../utils/aiGame';
 import { isCampaignRoom, resolveCampaignWordTier } from '../../utils/aiGameCampaign';
 import { canControlAiGameRoom } from '../../utils/aiGamePermission';
 import { normalizeUndercoverCount, pickUndercoverIndexes } from '../../utils/aiGameUndercoverRules';
@@ -27,7 +27,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const candidatePlayers = players.filter((p: any) => p.player_type !== 'observer');
     const humanPlayerCount = players.filter((p: any) => p.player_type === 'human').length;
 
-    if (room.mode !== 'solo' && room.mode !== 'jury' && room.mode !== 'undercover' && humanPlayerCount < 2) {
+    if (room.mode !== 'solo' && room.mode !== 'jury' && room.mode !== 'undercover' && room.mode !== 'human_hunt' && humanPlayerCount < 2) {
       return json({ success: false, message: '多人模式至少需要 2 个真人。单人试玩请选择“单人鉴定官”。' }, 400);
     }
 
@@ -58,6 +58,25 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         await db.prepare(
           `UPDATE ai_game_players SET ai_persona = ? WHERE id = ?`
         ).bind(encodeUndercoverMeta(role, word, civilianWord, undercoverWord), player.id).run();
+      }
+    } else if (room.mode === 'human_hunt') {
+      const aiToCreate = Math.max(0, Number(room.ai_count) - players.filter((p: any) => p.player_type === 'ai').length);
+      for (let i = 0; i < aiToCreate; i++) {
+        const idx = candidatePlayers.length + i;
+        const name = pickAiName(idx + 1, usedNames);
+        usedNames.add(name);
+        await db.prepare(
+          `INSERT INTO ai_game_players
+           (id, room_id, user_id, display_name, player_type, secret_role, ai_persona, seat_index, is_online, last_seen_at, created_at)
+           VALUES (?, ?, NULL, ?, 'ai', 'ai', ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        ).bind(`humanhunt-ai-${crypto.randomUUID().replace(/-/g, '').slice(0, 10)}`, roomId, name, pickPersona(idx), idx + 1).run();
+      }
+
+      const allCandidates = (await getPlayers(db, roomId, true)).filter((p: any) => p.player_type !== 'observer');
+      const shuffledSeats = sortHumanHuntSeats(roomId, allCandidates);
+      for (let i = 0; i < shuffledSeats.length; i++) {
+        await db.prepare(`UPDATE ai_game_players SET seat_index = ?, display_name = ? WHERE id = ?`)
+          .bind(i, formatNumberedPlayerName(i + 1), shuffledSeats[i].id).run();
       }
     } else if (room.mode === 'jury') {
       const roles = getJuryRoles();
@@ -109,12 +128,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
        VALUES (?, 'system', '系统', 'system', ?, CURRENT_TIMESTAMP)`
     ).bind(roomId, room.mode === 'undercover'
       ? `游戏开始。本局有 ${normalizeUndercoverCount(room.undercover_count, candidateCount)} 名卧底，每个人已拿到自己的词。请依次描述，不能直接说出词语本身。`
+      : room.mode === 'human_hunt'
+      ? `谁是人类开始。本关有 ${room.ai_count} 个 AI，真人要伪装到只剩 1 个 AI。没有倒计时，自由聊天，聊够后由你发起投票。`
       : room.mode === 'jury'
       ? `开庭。本案指控：${pickJuryCase(roomId)} 被告可以陈述事实、狡辩或甩锅。`
       : room.mode === 'solo'
         ? `单人鉴定开始。${candidateCount} 个候选玩家里有 ${room.ai_count} 个 AI，你可以发问题观察他们。`
         : `游戏开始。${candidateCount} 个席位里有 ${room.ai_count} 个 AI，聊天结束后投票猜身份。`
     ).run();
+
+    if (room.mode === 'human_hunt') {
+      const firstRound = formatHumanHuntRoundStart(roomId, 1, allPlayers, true);
+      await db.prepare(
+        `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)
+         VALUES (?, 'system', '系统', 'system', ?, CURRENT_TIMESTAMP)`
+      ).bind(roomId, firstRound.content).run();
+    }
 
     return json({ success: true, data: { started: true } });
   } catch (error: any) {

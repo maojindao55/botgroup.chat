@@ -249,6 +249,17 @@ const npcReplies = [
   '我先观望一下',
 ];
 
+const humanHuntFallbackReplies = [
+  '我先看看大家怎么说。',
+  '这局现在还不好判断。',
+  '感觉先别急着下结论。',
+  '我觉得可以多聊两句再投。',
+  '刚才那句有点像在控细节。',
+  '我现在更想看谁接话最自然。',
+  '先观望一下，别太快暴露判断。',
+  '这几个人说法都挺像模板的。',
+];
+
 export function pickPersona(index: number) {
   return personas[index % personas.length];
 }
@@ -259,6 +270,11 @@ export function pickAiName(index: number, usedNames: Set<string>) {
     if (!usedNames.has(name)) return name;
   }
   return `玩家${index + 1}`;
+}
+
+export function formatNumberedPlayerName(index: number) {
+  const safeIndex = Math.max(1, Math.floor(Number(index) || 1));
+  return `${safeIndex}号玩家`;
 }
 
 export async function getRoom(db: D1Database, roomId: string) {
@@ -285,12 +301,13 @@ export async function ensurePlayerHeartbeat(db: D1Database, playerId?: string) {
 }
 
 export function normalizeGameMode(mode?: string) {
-  if (mode === 'undercover' || mode === 'jury' || mode === 'solo' || mode === 'reverse' || mode === 'topic') return mode;
+  if (mode === 'undercover' || mode === 'human_hunt' || mode === 'jury' || mode === 'solo' || mode === 'reverse' || mode === 'topic') return mode;
   return 'classic';
 }
 
 export function defaultsForMode(mode: string) {
   if (mode === 'undercover') return { maxPlayers: 6, aiCount: 5, durationSeconds: 240 };
+  if (mode === 'human_hunt') return { maxPlayers: 3, aiCount: 2, durationSeconds: 600 };
   if (mode === 'jury') return { maxPlayers: 7, aiCount: 6, durationSeconds: 300 };
   if (mode === 'reverse') return { maxPlayers: 6, aiCount: 5, durationSeconds: 150 };
   if (mode === 'solo') return { maxPlayers: 6, aiCount: 2, durationSeconds: 180 };
@@ -490,6 +507,271 @@ export function parseUndercoverMeta(raw?: string | null) {
   };
 }
 
+function hashNumber(value: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function getHumanHuntRoundNumber(messages: any[]) {
+  let round = 0;
+  for (const message of messages) {
+    const match = String(message.content || '').match(/^第\s*(\d+)\s*轮(?:自由讨论开始|题目：)/);
+    if (message.sender_type === 'system' && match) round = Math.max(round, Number(match[1]) || 0);
+  }
+  return round;
+}
+
+export function getHumanHuntRoundMarker(messages: any[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = String(messages[i]?.content || '');
+    if (messages[i]?.sender_type !== 'system') continue;
+    const freeChatMatch = content.match(/^第\s*(\d+)\s*轮自由讨论开始，(.+?)\s*先开场。?$/);
+    if (freeChatMatch) {
+      return {
+        round: Number(freeChatMatch[1]) || 1,
+        prompt: '',
+        starterName: freeChatMatch[2].trim(),
+        messageId: Number(messages[i].id || 0),
+      };
+    }
+    const promptMatch = content.match(/^第\s*(\d+)\s*轮题目：(.+)$/);
+    if (promptMatch) {
+      return {
+        round: Number(promptMatch[1]) || 1,
+        prompt: promptMatch[2].trim(),
+        starterName: '',
+        messageId: Number(messages[i].id || 0),
+      };
+    }
+  }
+  return null;
+}
+
+export function getHumanHuntRoundPrompt(messages: any[]) {
+  const marker = getHumanHuntRoundMarker(messages);
+  return marker?.prompt ? marker : null;
+}
+
+export function getHumanHuntActivePlayers(players: any[]) {
+  return players
+    .filter((player) => player.player_type !== 'observer' && !player.eliminated_at)
+    .sort((a, b) => {
+      const seatDiff = Number(a.seat_index || 0) - Number(b.seat_index || 0);
+      if (seatDiff !== 0) return seatDiff;
+      return String(a.created_at || '').localeCompare(String(b.created_at || ''));
+    });
+}
+
+export function getHumanHuntSpeechOrder(players: any[], round: number) {
+  const active = getHumanHuntActivePlayers(players);
+  if (active.length <= 1) return active;
+  const start = (Math.max(1, Math.floor(Number(round) || 1)) - 1) % active.length;
+  return [...active.slice(start), ...active.slice(0, start)];
+}
+
+export function pickHumanHuntStarter(roomId: string, round: number, players: any[], preferAi = false) {
+  const active = getHumanHuntActivePlayers(players);
+  const pool = preferAi ? active.filter((player) => player.player_type === 'ai') : active;
+  const candidates = pool.length > 0 ? pool : active;
+  return [...candidates].sort((a, b) => {
+    const diff = hashNumber(`${roomId}:human-hunt-starter:${round}:${a.id}`) - hashNumber(`${roomId}:human-hunt-starter:${round}:${b.id}`);
+    if (diff !== 0) return diff;
+    return String(a.id).localeCompare(String(b.id));
+  })[0] || null;
+}
+
+export function formatHumanHuntRoundStart(roomId: string, round: number, players: any[], preferAiStarter = false) {
+  const starter = pickHumanHuntStarter(roomId, round, players, preferAiStarter);
+  return {
+    starter,
+    content: `第 ${Math.max(1, Math.floor(Number(round) || 1))} 轮自由讨论开始，${starter?.display_name || '存活玩家'} 先开场。`,
+  };
+}
+
+export function getHumanHuntTurnState(players: any[], messages: any[]) {
+  const marker = getHumanHuntRoundMarker(messages);
+  if (!marker) {
+    return {
+      round: 0,
+      prompt: '',
+      order: [] as any[],
+      spokenIds: new Set<string>(),
+      currentSpeaker: null,
+      starter: null,
+      starterName: '',
+      speechCount: 0,
+      minSpeechCount: 0,
+      canVote: false,
+      complete: false,
+    };
+  }
+  const order = getHumanHuntActivePlayers(players);
+  const spokenIds = new Set<string>();
+  const roundMessages = [];
+  for (const message of messages) {
+    if (Number(message.id || 0) <= marker.messageId) continue;
+    if (message.sender_type !== 'human' && message.sender_type !== 'ai') continue;
+    roundMessages.push(message);
+    if (message.player_id) spokenIds.add(String(message.player_id));
+  }
+  const starter = marker.starterName
+    ? order.find((player) => player.display_name === marker.starterName) || null
+    : null;
+  const minSpeechCount = Math.max(1, order.length);
+  const minUniqueSpeakerCount = Math.max(1, Math.ceil(order.length * 0.7));
+  const canVote = roundMessages.length >= minSpeechCount && spokenIds.size >= minUniqueSpeakerCount;
+  return {
+    round: marker.round,
+    prompt: marker.prompt,
+    order,
+    spokenIds,
+    currentSpeaker: roundMessages.length === 0 ? starter : null,
+    starter,
+    starterName: marker.starterName,
+    speechCount: roundMessages.length,
+    minSpeechCount,
+    uniqueSpeakerCount: spokenIds.size,
+    minUniqueSpeakerCount,
+    canVote,
+    complete: canVote,
+  };
+}
+
+export function sortHumanHuntSeats(roomId: string, players: any[]) {
+  return [...players].sort((a, b) => {
+    const diff = hashNumber(`${roomId}:${a.id}`) - hashNumber(`${roomId}:${b.id}`);
+    if (diff !== 0) return diff;
+    return String(a.id).localeCompare(String(b.id));
+  });
+}
+
+export function getHumanHuntFallbackReply(player: any, room: any, messages: any[]) {
+  const round = getHumanHuntTurnState([], messages).round || getHumanHuntRoundNumber(messages) || 1;
+  const seed = hashStringToIndex(`${room.id}:${player.id}:${messages.length}:${round}`, humanHuntFallbackReplies.length);
+  return humanHuntFallbackReplies[seed];
+}
+
+export async function generateHumanHuntReply(env: any, player: any, room: any, messages: any[], replyIntent = '自然接一句') {
+  try {
+    const { config, apiKey } = getModel(env);
+    const openai = new OpenAI({ apiKey, baseURL: config.baseURL });
+    const recent = messages
+      .filter((msg) => msg.sender_type !== 'system' || String(msg.content || '').startsWith('第') || String(msg.content || '').startsWith('投票完成'))
+      .slice(-16)
+      .map((msg) => `${msg.sender_name}: ${msg.content}`)
+      .join('\n');
+    const ownHistory = messages
+      .filter((msg) => msg.player_id === player.id)
+      .slice(-4)
+      .map((msg) => msg.content)
+      .join('\n');
+    const prompt = [
+      '你正在玩群聊游戏“谁是人类”。',
+      '你是 AI 玩家，但不能承认自己是 AI，也不能说自己是语言模型。',
+      '这一局只有一个真人混在 AI 里。你的发言目标是自然、普通、不太抢眼。',
+      '回复必须短，通常 6 到 24 个中文字；不要 Markdown，不要列表，不要解释规则。',
+      '保持低信息量群聊口吻，可以敷衍、含糊、转问别人。',
+      '不要编具体职业、地点、食物、通勤、投资人、工作项目等真实经历。',
+      '不要连续围攻同一个玩家；最多轻轻怀疑一句，也可以正常接话。',
+      '当前没有固定题目，大家在自由讨论和互相试探。',
+      `你的名字：${player.display_name}`,
+      `你的人设：${player.ai_persona || '普通群友'}`,
+      `这次发言任务：${replyIntent}`,
+    ].join('\n');
+
+    const completion = await openai.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: `最近记录：\n${recent || '暂无'}\n\n你自己之前说过：\n${ownHistory || '暂无'}\n\n请以 ${player.display_name} 的口吻在群里发一句。` },
+      ],
+      temperature: 0.9,
+      presence_penalty: 0.4,
+      frequency_penalty: 0.6,
+    });
+
+    const content = completion.choices[0]?.message?.content?.trim() || '';
+    return content
+      .replace(new RegExp(`^${player.display_name}[：:]\\s*`), '')
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/[()[\]（）【】]/g, '')
+      .trim()
+      .slice(0, 60) || getHumanHuntFallbackReply(player, room, messages);
+  } catch (error) {
+    console.warn('human hunt ai reply fallback:', error);
+    return getHumanHuntFallbackReply(player, room, messages);
+  }
+}
+
+export async function generateHumanHuntVote(env: any, voter: any, players: any[], messages: any[], roundContext = '自由讨论') {
+  const candidates = players
+    .filter((player) => player.id !== voter.id && player.player_type !== 'observer' && !player.eliminated_at)
+    .map((player) => player.display_name);
+  if (candidates.length === 0) return null;
+
+  try {
+    const { config, apiKey } = getModel(env);
+    const openai = new OpenAI({ apiKey, baseURL: config.baseURL });
+    const roundMarker = getHumanHuntRoundMarker(messages);
+    const transcript = messages
+      .filter((msg) => {
+        if (msg.sender_type === 'system') return String(msg.content || '').startsWith('第') || String(msg.content || '').startsWith('投票完成');
+        if (!roundMarker) return true;
+        return Number(msg.id || 0) > roundMarker.messageId;
+      })
+      .map((msg) => `${msg.sender_name}: ${msg.content}`)
+      .join('\n')
+      .slice(-4500);
+    const prompt = [
+      '你正在玩“谁是人类”，现在必须投票。',
+      '这一局只有一个真人混在 AI 里。你是 AI 玩家，要根据本轮发言找出最像真人的人。',
+      '不能投自己，只能从候选名单里选一个名字。',
+      '真人常见特征：细节过具体、生活经验太自然、情绪太真实、回答不像低信息量群聊。',
+      'AI 也可能装得像真人，所以不要全知判断，只根据发言投票。',
+      '只返回一个候选玩家名字，不要解释。',
+      `你的名字：${voter.display_name}`,
+      `本轮阶段：${roundContext}`,
+      `候选名单：${candidates.join('、')}`,
+    ].join('\n');
+    const completion = await openai.chat.completions.create({
+      model: config.model,
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: `本轮发言：\n${transcript || '暂无'}\n\n你投谁？只返回名字。` },
+      ],
+      temperature: 0.35,
+    });
+    const raw = completion.choices[0]?.message?.content?.trim() || '';
+    const matched = players.find((player) => player.id !== voter.id && !player.eliminated_at && raw.includes(player.display_name));
+    if (matched) return matched;
+  } catch {}
+
+  const roundMarker = getHumanHuntRoundMarker(messages);
+  const roundMessages = messages.filter((msg) =>
+    (msg.sender_type === 'human' || msg.sender_type === 'ai')
+    && (!roundMarker || Number(msg.id || 0) > roundMarker.messageId)
+  );
+  const fallback = players
+    .filter((player) => player.id !== voter.id && player.player_type !== 'observer' && !player.eliminated_at)
+    .map((player) => {
+      const speech = roundMessages.find((msg) => msg.player_id === player.id);
+      const content = String(speech?.content || '');
+      return {
+        player,
+        score: content.length + (/[我自己]|最近|平时|习惯|朋友|公司|学校/.test(content) ? 8 : 0),
+      };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return hashNumber(`${voter.id}:${a.player.id}:${messages.length}`) - hashNumber(`${voter.id}:${b.player.id}:${messages.length}`);
+    });
+  return fallback[0]?.player || null;
+}
+
 export function generateNpcReply(player: any, messages: any[]) {
   const last = String(messages[messages.length - 1]?.content || '');
   const seed = [...`${player.id}:${messages.length}:${last}`].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
@@ -687,6 +969,7 @@ export async function generateUndercoverVote(env: any, voter: any, players: any[
 
 export async function generateAiPostGameReview(env: any, player: any, room: any, players: any[], messages: any[], votes: any[]) {
   const isUndercover = room.mode === 'undercover';
+  const isHumanHunt = room.mode === 'human_hunt';
   const meta = isUndercover ? parseUndercoverMeta(player.ai_persona) : null;
   const roleText = players.map((p) => {
     const pMeta = isUndercover ? parseUndercoverMeta(p.ai_persona) : null;
@@ -707,13 +990,14 @@ export async function generateAiPostGameReview(env: any, player: any, room: any,
     const prompt = [
       '你刚结束一局群聊游戏，现在以玩家身份在群里随口说一句本局感受。',
       '像真人玩家聊天，不要像报告，不要 Markdown，不要列表，不要自称 AI 或语言模型。',
-      '只聊这一局刚发生的事：可以承认看错、吐槽自己、怀疑某个发言、夸某个人装得像、解释自己为什么投那票。',
+      '只聊这一局刚发生的事：可以承认看错、怀疑某个发言、解释自己为什么投那票。',
+      '不要编新的生活场景，不要夸张剧情，不要说鼻孔、手抖、汤洒手机这类段子。',
       '不要说下局、下一把、以后、策略、调整、复盘这些词。',
       '不要固定开头，不要所有人都用同一种句式。',
-      '长度 18 到 70 个中文字，口语一点，可以不完整但要有信息量。',
+      '长度 16 到 45 个中文字，口语一点，克制一点。',
       `你的名字：${player.display_name}`,
       `你的人设：${player.ai_persona || '普通玩家'}`,
-      isUndercover && meta ? `你的身份：${meta.role === 'undercover' ? '卧底' : '平民'}，你的词语：${meta.word}` : `你的身份：${player.secret_role || player.player_type}`,
+      isUndercover && meta ? `你的身份：${meta.role === 'undercover' ? '卧底' : '平民'}，你的词语：${meta.word}` : isHumanHunt ? `你的身份：AI，刚才在找唯一真人` : `你的身份：${player.secret_role || player.player_type}`,
       `房间模式：${room.mode}`,
     ].join('\n');
 
@@ -736,17 +1020,19 @@ export async function generateAiPostGameReview(env: any, player: any, room: any,
       .replace(/(下局|下一局|下把|下一把|以后|策略|调整)/g, '')
       .replace(/[()[\]（）【】]/g, '')
       .trim()
-      .slice(0, 120);
+      .slice(0, 70);
   } catch {
     const seed = [...`${room.id}:${player.id}:${messages.length}`].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
-    const fallback = isUndercover && meta?.role === 'undercover'
+    const fallback = isHumanHunt
+      ? '刚才那几句太像真人生活细节了，我投的时候其实就是盯着这个点。'
+      : isUndercover && meta?.role === 'undercover'
       ? '刚才我带票有点太急了，自己都感觉痕迹明显，能撑到最后已经算运气好。'
       : '我刚才真有点被最后几句带跑，前面那些描述细节没记住，这票投得不太稳。';
     const variants = [
       fallback,
-      '小周那句描述我当时没多想，揭完才发现其实挺露的，我这票有点后知后觉。',
-      '我刚才一直在看谁说得最安全，结果安全的人也可能只是装得稳，这局挺绕的。',
-      '这票我投出去的时候还挺确定，结果一揭晓就尴尬了，前面判断有点飘。',
+      isHumanHunt ? '我刚才一直在看谁说得最像真的，结果有些短句反而更像装出来的。' : '小周那句描述我当时没多想，揭完才发现其实挺露的，我这票有点后知后觉。',
+      isHumanHunt ? '最后那轮我其实有点犹豫，太自然和太安全都挺可疑的。' : '我刚才一直在看谁说得最安全，结果安全的人也可能只是装得稳，这局挺绕的。',
+      isHumanHunt ? '这局最难的是判断谁在故意低信息量，票投出去之前我也没那么稳。' : '这票我投出去的时候还挺确定，结果一揭晓就尴尬了，前面判断有点飘。',
     ];
     return variants[seed % variants.length];
   }
@@ -778,7 +1064,12 @@ export async function insertAiPostGameReviews(db: D1Database, env: any, room: an
   }
 
   const aiPlayers = players.filter((player) => player.player_type === 'ai');
-  for (const player of aiPlayers) {
+  const reviewPlayers = room.mode === 'human_hunt'
+    ? aiPlayers
+      .filter((player) => !player.eliminated_at)
+      .slice(0, 3)
+    : aiPlayers;
+  for (const player of reviewPlayers) {
     const content = await generateAiPostGameReview(env, player, room, players, messages, votes);
     if (!content.trim()) continue;
     await db.prepare(

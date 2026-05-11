@@ -1,4 +1,4 @@
-export type AiGameMode = 'undercover' | 'jury' | 'solo' | 'classic' | 'reverse' | 'topic';
+export type AiGameMode = 'undercover' | 'human_hunt' | 'jury' | 'solo' | 'classic' | 'reverse' | 'topic';
 export type AiGameStatus = 'waiting' | 'playing' | 'voting' | 'revealed' | 'archived';
 
 export const aiGameModes = [
@@ -13,6 +13,18 @@ export const aiGameModes = [
     maxPlayers: 6,
     aiCount: 5,
     durationSeconds: 240,
+  },
+  {
+    id: 'human_hunt' as const,
+    name: '谁是人类',
+    description: '你是唯一真人，混进一群编号 AI 的自由群聊里，别被 AI 投出来。',
+    goal: '伪装成 AI，逐轮投出 AI；如果 AI 找到你，本关失败。',
+    setup: '1 个真人 + 若干 AI。没有倒计时，所有人统一显示为编号玩家。',
+    flow: ['首轮随机 AI 开场，后续每轮随机存活玩家开场', '自由聊天和互相试探，不出明面题目', '本轮聊天量足够后由你主动发起投票', '最高票唯一时出局，平票无人出局', '投中真人则 AI 胜；投出 AI 到只剩 1 个 AI 时真人胜'],
+    winCondition: '你活到只剩 1 个 AI 时获胜；被多数票投出则失败。',
+    maxPlayers: 3,
+    aiCount: 2,
+    durationSeconds: 600,
   },
 ];
 
@@ -37,6 +49,74 @@ export interface AiGameCampaignLevel {
   undercoverCount: 1 | 2;
   objective: string;
   modifier: string;
+}
+
+export interface AiGameHumanHuntLevel {
+  id: string;
+  levelNumber: number;
+  chapter: string;
+  title: string;
+  description: string;
+  maxPlayers: number;
+  aiCount: number;
+  durationSeconds: number;
+  difficulty: number;
+  objective: string;
+  modifier: string;
+}
+
+const humanHuntTitles = [
+  '两台机器',
+  '三重回声',
+  '模板边缘',
+  '群聊拟态',
+  '理性围捕',
+  '话术迷宫',
+  '冷静票型',
+  '机器合围',
+  '终局人类',
+];
+
+const humanHuntModifiers = [
+  'AI 数量少，先熟悉自由聊天和投票节奏。',
+  'AI 之间开始互相参考，注意别显得太有真实生活感。',
+  '自由聊更容易暴露个人习惯，回答要控制细节。',
+  'AI 票型更分散，别被单个怀疑牵着走。',
+  '发言人数增加，记住谁的表达最机械。',
+  'AI 会更积极寻找真人痕迹，回答要更像低信息量群友。',
+  '投错容错降低，需要稳定淘汰最像 AI 的对象。',
+  'AI 数量接近上限，票型压力明显增加。',
+  '最高难度，撑到最后就是胜利。',
+];
+
+function getHumanHuntChapter(level: number) {
+  if (level <= 3) return '入门拟态';
+  if (level <= 6) return '标准围捕';
+  return '高压终局';
+}
+
+export function generateHumanHuntLevel(levelNumber: number): AiGameHumanHuntLevel {
+  const level = Math.max(1, Math.min(9, Math.floor(Number(levelNumber) || 1)));
+  const aiCount = level + 1;
+  const titleBase = humanHuntTitles[level - 1] || `第 ${level} 关`;
+
+  return {
+    id: `h${level}`,
+    levelNumber: level,
+    chapter: getHumanHuntChapter(level),
+    title: titleBase,
+    description: `1 个真人混进 ${aiCount} 个 AI 里，自由聊天、投票淘汰 AI 并活到最后。`,
+    maxPlayers: aiCount + 1,
+    aiCount,
+    durationSeconds: 600,
+    difficulty: level,
+    objective: '不要被 AI 找到，逐轮投出 AI。',
+    modifier: humanHuntModifiers[level - 1] || 'AI 数量增加，伪装压力更高。',
+  };
+}
+
+export function getHumanHuntLevels() {
+  return Array.from({ length: 9 }, (_, index) => generateHumanHuntLevel(index + 1));
 }
 
 const campaignTitlePool = [

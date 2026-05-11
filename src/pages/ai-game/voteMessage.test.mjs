@@ -25,6 +25,17 @@ assert.deepEqual(parseVoteResultMessage(message), {
   resultLines: ['多数票投出 阿哲，游戏结束，身份已揭晓'],
 });
 
+const tiedMessage = '投票完成：你 -> A，A -> B，B -> 你。最高票并列（A、B、你），本轮无人出局，进入下一轮。';
+assert.deepEqual(parseVoteResultMessage(tiedMessage), {
+  votes: [
+    { voter: '你', target: 'A' },
+    { voter: 'A', target: 'B' },
+    { voter: 'B', target: '你' },
+  ],
+  eliminatedName: null,
+  resultLines: ['最高票并列（A、B、你），本轮无人出局，进入下一轮'],
+});
+
 assert.equal(getPlayerRoleLabel({
   player: { display_name: '阿哲', secret_role: 'human', ai_persona: 'undercover|role=undercover|word=猫|civilian=狗|undercover=猫' },
   isUndercoverMode: true,

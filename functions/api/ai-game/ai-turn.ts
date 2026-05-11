@@ -1,4 +1,4 @@
-import { generateAiGameReply, generateJuryReply, generateNpcReply, generateUndercoverReply, getRoom, json } from '../../utils/aiGame';
+import { generateAiGameReply, generateHumanHuntReply, generateJuryReply, generateNpcReply, generateUndercoverReply, getHumanHuntTurnState, getPlayers, getRoom, json } from '../../utils/aiGame';
 
 interface Env {
   bgdb: D1Database;
@@ -7,11 +7,93 @@ interface Env {
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     const db = context.env.bgdb;
-    const { roomId } = await context.request.json() as { roomId: string };
+    const { roomId, force } = await context.request.json() as { roomId: string; force?: boolean };
     if (!roomId) return json({ success: false, message: '缺少房间 ID' }, 400);
     const room = await getRoom(db, roomId);
     if (!room) return json({ success: false, message: '房间不存在' }, 404);
     if (room.status !== 'playing') return json({ success: true, data: { replies: [] } });
+
+    if (room.mode === 'human_hunt') {
+      const replies = [];
+      const players = await getPlayers(db, roomId, true);
+      const activePlayers = players.filter((player: any) => player.player_type !== 'observer' && !player.eliminated_at);
+      const messagesResult = await db.prepare(
+        `SELECT id, room_id, player_id, sender_name, sender_type, content, created_at
+         FROM ai_game_messages
+         WHERE room_id = ?
+         ORDER BY id ASC`
+      ).bind(roomId).all();
+      let messages = messagesResult.results || [];
+      const turnState = getHumanHuntTurnState(players, messages);
+      const latest = messages[messages.length - 1];
+      const noRoundSpeech = turnState.speechCount === 0;
+      const starter = turnState.starter;
+      if (noRoundSpeech && starter?.player_type !== 'ai' && !force) {
+        return json({ success: true, data: { replies: [] } });
+      }
+      const latestContent = String(latest?.content || '');
+      const responderLimit = force ? 3 : noRoundSpeech ? 1 : (/[?？吗呢谁怎么咋为什么]/.test(latestContent) ? 2 : 1);
+      const spokenIds = turnState.spokenIds || new Set<string>();
+      const explicitMention = latestContent.match(/(\d+)\s*号(?:玩家)?/);
+      const mentionedPlayer = explicitMention
+        ? activePlayers.find((player: any) => player.display_name.startsWith(`${explicitMention[1]}号`))
+        : null;
+      const previousSpeaker = latest?.sender_type === 'human' && /你/.test(latestContent)
+        ? [...messages]
+          .reverse()
+          .find((message: any) => Number(message.id || 0) < Number(latest?.id || 0) && message.sender_type === 'ai')
+        : null;
+      const impliedTarget = previousSpeaker
+        ? activePlayers.find((player: any) => player.id === previousSpeaker.player_id)
+        : null;
+      const targetResponder = [mentionedPlayer, impliedTarget]
+        .find((player: any) => player?.player_type === 'ai' && player.id !== latest?.player_id);
+      const sortedResponders = activePlayers
+        .filter((player: any) => player.player_type === 'ai' && player.id !== latest?.player_id)
+        .sort((a: any, b: any) => {
+          if (targetResponder?.id === a.id) return -1;
+          if (targetResponder?.id === b.id) return 1;
+          const aUnspoken = spokenIds.has(String(a.id)) ? 1 : 0;
+          const bUnspoken = spokenIds.has(String(b.id)) ? 1 : 0;
+          if (aUnspoken !== bUnspoken) return aUnspoken - bUnspoken;
+          const seed = `${roomId}:${turnState.round}:${messages.length}`;
+          const aScore = [...`${seed}:${a.id}`].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+          const bScore = [...`${seed}:${b.id}`].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+          return aScore - bScore;
+        });
+      const responders = noRoundSpeech && starter?.player_type === 'ai'
+        ? [starter]
+        : sortedResponders.slice(0, responderLimit);
+
+      for (const speaker of responders) {
+        const intent = noRoundSpeech
+          ? '你是本轮先手，用很普通的一句话开场，别提题目，别编生活经历。'
+          : force
+            ? '主动接一下群聊，让还没说话的人参与感更强；可以转问别人，不要编具体生活经历。'
+            : targetResponder?.id === speaker.id
+              ? '你刚被点到或被追问了，简短回应一句，不要编具体生活经历。'
+              : '根据最近聊天自然接一句。优先正常回答或转问别人，不要围攻同一个人，不要编具体生活经历。';
+        const content = await generateHumanHuntReply(context.env, speaker, room, messages, intent);
+        if (!content.trim()) continue;
+        const result = await db.prepare(
+          `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)
+           VALUES (?, ?, ?, 'ai', ?, CURRENT_TIMESTAMP)`
+        ).bind(roomId, speaker.id, speaker.display_name, content).run();
+        const inserted = {
+          id: result.meta.last_row_id,
+          room_id: roomId,
+          player_id: speaker.id,
+          sender_name: speaker.display_name,
+          sender_type: 'ai',
+          content,
+          created_at: new Date().toISOString(),
+        };
+        replies.push({ id: result.meta.last_row_id, playerId: speaker.id, content });
+        messages = [...messages, inserted];
+      }
+
+      return json({ success: true, data: { replies } });
+    }
 
     const lastAi = await db.prepare(
       `SELECT created_at FROM ai_game_messages WHERE room_id = ? AND sender_type = 'ai' ORDER BY id DESC LIMIT 1`
