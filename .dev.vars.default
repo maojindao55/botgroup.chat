@@ -3,3 +3,5 @@ HUNYUAN_API_KEY=xxx //混元
 ARK_API_KEY=xxx //豆包
 GOOGLE_CLIENT_ID=xxx //Google OAuth Client ID
 GOOGLE_CLIENT_SECRET=xxx //Google OAuth Client Secret
+LINUXDO_CLIENT_ID=xxx //Linux.do OAuth Client ID
+LINUXDO_CLIENT_SECRET=xxx //Linux.do OAuth Client Secret
