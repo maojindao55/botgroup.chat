@@ -1232,20 +1232,13 @@ function AiGameHome() {
                 <div className="font-medium text-foreground">本地进度</div>
                 <div className="mt-1">最高第 {humanHuntProgress.highestUnlockedLevel} 关 · 已通关 {clearedHumanHuntLevels} 关</div>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="mt-4">
                 <button
                   onClick={() => setHomeSection('human_hunt')}
-                  className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg border bg-background px-3 py-3 text-sm font-medium transition-colors hover:bg-accent"
+                  className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg border bg-background px-3 py-3 text-sm font-medium transition-colors hover:bg-accent"
                 >
                   <Trophy className="h-4 w-4 text-[#c2410c]" />
                   逐关挑战
-                </button>
-                <button
-                  onClick={() => setHomeSection('practice')}
-                  className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg border bg-background px-3 py-3 text-sm font-medium transition-colors hover:bg-accent"
-                >
-                  <Play className="h-4 w-4 text-[#c2410c]" />
-                  自由练习
                 </button>
               </div>
             </div>
