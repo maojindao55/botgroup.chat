@@ -1191,61 +1191,64 @@ function AiGameHome() {
         </div>
 
         {homeSection === 'menu' && (
-          <div className="grid flex-1 content-center gap-4 md:grid-cols-3">
-            <button
-              onClick={() => setHomeSection('campaign')}
-              className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm transition-colors hover:bg-accent"
-            >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Flag className="h-5 w-5 text-[#c2410c]" />
-                  <h1 className="text-xl font-semibold tracking-normal">卧底晋级赛</h1>
-                </div>
-                <div className="flex text-[#c2410c]">
-                  {Array.from({ length: 3 }).map((_, index) => (
-                    <Star key={index} className="h-4 w-4 fill-current" />
-                  ))}
-                </div>
+          <div className="grid flex-1 content-center gap-4 md:grid-cols-2">
+            {/* 谁是卧底 */}
+            <div className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm">
+              <div className="mb-3 flex items-center gap-2">
+                <Flag className="h-5 w-5 text-[#c2410c]" />
+                <h1 className="text-xl font-semibold tracking-normal">谁是卧底</h1>
               </div>
-              <p className="text-sm text-muted-foreground">逐关挑战谁是卧底，从明显破绽到高压反杀。</p>
+              <p className="text-sm text-muted-foreground">和 AI 拿相近词，轮流描述、投票找出卧底</p>
               <div className="mt-4 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
                 <div className="font-medium text-foreground">本地进度</div>
                 <div className="mt-1">最高第 {campaignProgress.highestUnlockedLevel} 关 · 已通关 {clearedLevels} 关</div>
               </div>
-            </button>
-
-            <button
-              onClick={() => setHomeSection('human_hunt')}
-              className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm transition-colors hover:bg-accent"
-            >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Users className="h-5 w-5 text-[#c2410c]" />
-                  <h1 className="text-xl font-semibold tracking-normal">谁是人类</h1>
-                </div>
-                <div className="text-xs font-medium text-muted-foreground">回合制</div>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setHomeSection('campaign')}
+                  className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg border bg-background px-3 py-3 text-sm font-medium transition-colors hover:bg-accent"
+                >
+                  <Trophy className="h-4 w-4 text-[#c2410c]" />
+                  逐关挑战
+                </button>
+                <button
+                  onClick={() => setHomeSection('practice')}
+                  className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg border bg-background px-3 py-3 text-sm font-medium transition-colors hover:bg-accent"
+                >
+                  <Play className="h-4 w-4 text-[#c2410c]" />
+                  自由练习
+                </button>
               </div>
-              <p className="text-sm text-muted-foreground">你是唯一真人，混进 AI 群聊里自由聊天并活到最后。</p>
+            </div>
+
+            {/* 谁是人类 */}
+            <div className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm">
+              <div className="mb-3 flex items-center gap-2">
+                <Users className="h-5 w-5 text-[#c2410c]" />
+                <h1 className="text-xl font-semibold tracking-normal">谁是人类</h1>
+              </div>
+              <p className="text-sm text-muted-foreground">混进 AI 群聊，自由聊天、投票活到最后</p>
               <div className="mt-4 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
                 <div className="font-medium text-foreground">本地进度</div>
                 <div className="mt-1">最高第 {humanHuntProgress.highestUnlockedLevel} 关 · 已通关 {clearedHumanHuntLevels} 关</div>
               </div>
-            </button>
-
-            <button
-              onClick={() => setHomeSection('practice')}
-              className="min-w-0 rounded-lg border bg-card p-5 text-left shadow-sm transition-colors hover:bg-accent"
-            >
-              <div className="mb-3 flex items-center gap-2">
-                <Play className="h-5 w-5 text-[#c2410c]" />
-                <h1 className="text-xl font-semibold tracking-normal">自由练习</h1>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setHomeSection('human_hunt')}
+                  className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg border bg-background px-3 py-3 text-sm font-medium transition-colors hover:bg-accent"
+                >
+                  <Trophy className="h-4 w-4 text-[#c2410c]" />
+                  逐关挑战
+                </button>
+                <button
+                  onClick={() => setHomeSection('practice')}
+                  className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg border bg-background px-3 py-3 text-sm font-medium transition-colors hover:bg-accent"
+                >
+                  <Play className="h-4 w-4 text-[#c2410c]" />
+                  自由练习
+                </button>
               </div>
-              <p className="text-sm text-muted-foreground">不计入闯关进度，直接开一局当前玩法练手，也可以加入已有房间。</p>
-              <div className="mt-4 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-                <div className="font-medium text-foreground">当前玩法</div>
-                <div className="mt-1">{selectedMode.name} · {selectedMode.maxPlayers - selectedMode.aiCount} 真人 + {selectedMode.aiCount} AI</div>
-              </div>
-            </button>
+            </div>
           </div>
         )}
 
