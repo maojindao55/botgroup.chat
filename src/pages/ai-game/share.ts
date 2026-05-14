@@ -12,7 +12,7 @@ export function parseHumanHuntChallengeLevel(search: string) {
 
 export function buildAiGameChallengeUrl(currentHref: string, levelNumber?: number | null) {
   const url = new URL(currentHref);
-  url.pathname = '/ai-game';
+  url.pathname = '/ai-game/whoisundercover';
   url.search = '';
   url.hash = '';
   const level = Math.floor(Number(levelNumber) || 0);
@@ -22,7 +22,7 @@ export function buildAiGameChallengeUrl(currentHref: string, levelNumber?: numbe
 
 export function buildHumanHuntChallengeUrl(currentHref: string, levelNumber?: number | null) {
   const url = new URL(currentHref);
-  url.pathname = '/ai-game';
+  url.pathname = '/ai-game/whoishuman';
   url.search = '';
   url.hash = '';
   const level = Math.floor(Number(levelNumber) || 0);

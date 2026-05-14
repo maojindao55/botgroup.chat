@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, Bot, Check, Copy, Download, Eye, Flag, Loader2, Lock, Play, Send, Share2, Star, Users, Vote, AlertCircle, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -986,9 +986,16 @@ function MobileActionCard({
 
 function AiGameHome() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isUndercoverPath = pathname.startsWith('/ai-game/whoisundercover');
+  const isHumanHuntPath = pathname.startsWith('/ai-game/whoishuman');
   const challengeLevelNumber = typeof window !== 'undefined' ? parseChallengeLevel(window.location.search) : null;
   const humanChallengeLevelNumber = typeof window !== 'undefined' ? parseHumanHuntChallengeLevel(window.location.search) : null;
-  const [homeSection, setHomeSection] = useState<'menu' | 'campaign' | 'human_hunt' | 'practice'>(() => challengeLevelNumber ? 'campaign' : humanChallengeLevelNumber ? 'human_hunt' : 'menu');
+  const [homeSection, setHomeSection] = useState<'menu' | 'campaign' | 'human_hunt' | 'practice'>(() => {
+    if (isUndercoverPath) return challengeLevelNumber ? 'campaign' : 'campaign';
+    if (isHumanHuntPath) return humanChallengeLevelNumber ? 'human_hunt' : 'human_hunt';
+    return challengeLevelNumber ? 'campaign' : humanChallengeLevelNumber ? 'human_hunt' : 'menu';
+  });
   const [mode, setMode] = useState(aiGameModes[0].id);
   const [name, setName] = useState(localStorage.getItem('ai-game-name') || '');
   const [roomId, setRoomId] = useState('');
@@ -1034,7 +1041,7 @@ function AiGameHome() {
       const joinData = await joinRes.json();
       localStorage.setItem(playerStorageKey(newRoomId), joinData.data.playerId);
       localStorage.setItem('ai-game-name', name || '玩家1');
-      navigate(`/ai-game/${newRoomId}`);
+      navigate(`/ai-game/whoisundercover/${newRoomId}`);
     } catch (error: any) {
       toast.error(error.message || '创建失败');
     } finally {
@@ -1064,12 +1071,13 @@ function AiGameHome() {
         toast.error('房间已满');
         return;
       }
+      const roomSubPath = targetRoom.mode === 'human_hunt' ? 'whoishuman' : 'whoisundercover';
       if (targetRoom.status === 'waiting') {
         toast.success(`房间「${targetRoom.title}」等待中 (${humanCount}/${targetRoom.max_players})`);
-        navigate(`/ai-game/${id}`);
+        navigate(`/ai-game/${roomSubPath}/${id}`);
       } else {
         toast.info(`房间「${targetRoom.title}」进行中，将作为旁观者加入`);
-        navigate(`/ai-game/${id}?observe=1`);
+        navigate(`/ai-game/${roomSubPath}/${id}?observe=1`);
       }
     } catch (error: any) {
       toast.error(error.message || '房间查询失败');
@@ -1104,7 +1112,7 @@ function AiGameHome() {
       localStorage.setItem(playerStorageKey(newRoomId), joinData.data.playerId);
       localStorage.setItem(roomLevelStorageKey(newRoomId), String(level.levelNumber));
       localStorage.setItem('ai-game-name', name || '玩家1');
-      navigate(`/ai-game/${newRoomId}`);
+      navigate(`/ai-game/whoisundercover/${newRoomId}`);
     } catch (error: any) {
       toast.error(error.message || '关卡创建失败');
     } finally {
@@ -1136,7 +1144,7 @@ function AiGameHome() {
       localStorage.setItem(playerStorageKey(newRoomId), joinData.data.playerId);
       localStorage.setItem(roomLevelStorageKey(newRoomId), `h${level.levelNumber}`);
       localStorage.setItem('ai-game-name', name || '玩家1');
-      navigate(`/ai-game/${newRoomId}`);
+      navigate(`/ai-game/whoishuman/${newRoomId}`);
     } catch (error: any) {
       toast.error(error.message || '关卡创建失败');
     } finally {
@@ -1148,9 +1156,12 @@ function AiGameHome() {
   const isHumanHuntLevelUnlocked = (level: AiGameHumanHuntLevel) => level.levelNumber <= humanHuntProgress.highestUnlockedLevel || level.levelNumber === humanChallengeLevelNumber;
 
   const shareGame = async () => {
-    const url = buildAiGameChallengeUrl(window.location.href, null);
-    const title = homeSection === 'human_hunt' ? '谁是人类' : '卧底晋级赛';
-    const text = homeSection === 'human_hunt'
+    const isHumanHunt = homeSection === 'human_hunt' || isHumanHuntPath;
+    const url = isHumanHunt
+      ? buildHumanHuntChallengeUrl(window.location.href, null)
+      : buildAiGameChallengeUrl(window.location.href, null);
+    const title = isHumanHunt ? '谁是人类' : '卧底晋级赛';
+    const text = isHumanHunt
       ? '来玩一局谁是人类，藏进一群 AI 里别被找出来。'
       : '来玩一局谁是卧底，和一群 AI 玩家一起找卧底。';
     try {
@@ -1175,8 +1186,16 @@ function AiGameHome() {
     <div className="fixed inset-0 overflow-y-auto bg-background">
       <div className="mx-auto flex min-h-full max-w-5xl flex-col px-4 py-6 md:py-10">
         <div className="mb-6 flex items-center justify-between">
-          <Button variant="outline" onClick={() => homeSection === 'menu' ? navigate('/') : setHomeSection('menu')}>
-            {homeSection === 'menu' ? '返回群聊' : '返回'}
+          <Button variant="outline" onClick={() => {
+            if (isUndercoverPath || isHumanHuntPath) {
+              navigate('/ai-game');
+            } else if (homeSection === 'menu') {
+              navigate('/');
+            } else {
+              setHomeSection('menu');
+            }
+          }}>
+            {(isUndercoverPath || isHumanHuntPath) ? '返回首页' : homeSection === 'menu' ? '返回群聊' : '返回'}
           </Button>
           <div className="flex items-center gap-2">
             <div className="hidden items-center gap-2 text-sm text-muted-foreground sm:flex">
@@ -1427,6 +1446,7 @@ function AiGameHome() {
 function AiGameRoom() {
   const { roomId = '' } = useParams();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const observeInvite = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('observe') === '1';
   const [room, setRoom] = useState<GameRoomData | null>(null);
   const [players, setPlayers] = useState<GamePlayer[]>([]);
@@ -1808,7 +1828,7 @@ function AiGameRoom() {
       localStorage.setItem(playerStorageKey(newRoomId), joinData.data.playerId);
       localStorage.setItem(roomLevelStorageKey(newRoomId), String(level.levelNumber));
       localStorage.setItem('ai-game-name', name || '玩家1');
-      navigate(`/ai-game/${newRoomId}`);
+      navigate(`/ai-game/whoisundercover/${newRoomId}`);
     } catch (error: any) {
       toast.error(error.message || '关卡创建失败');
     } finally {
@@ -1840,7 +1860,7 @@ function AiGameRoom() {
       localStorage.setItem(playerStorageKey(newRoomId), joinData.data.playerId);
       localStorage.setItem(roomLevelStorageKey(newRoomId), `h${level.levelNumber}`);
       localStorage.setItem('ai-game-name', name || '玩家1');
-      navigate(`/ai-game/${newRoomId}`);
+      navigate(`/ai-game/whoishuman/${newRoomId}`);
     } catch (error: any) {
       toast.error(error.message || '关卡创建失败');
     } finally {
@@ -1927,7 +1947,7 @@ function AiGameRoom() {
     copied,
     onStart: start,
     onCopyShare: copyShare,
-    onNewGame: () => navigate('/ai-game'),
+    onNewGame: () => navigate(isHumanHuntMode ? '/ai-game/whoishuman' : '/ai-game/whoisundercover'),
     onReplay: campaignLevel ? () => createCampaignRoomFromLevel(campaignLevel) : humanHuntLevel ? () => createHumanHuntRoomFromLevel(humanHuntLevel) : undefined,
     onNextCampaign: campaignStars > 0 && nextCampaignLevel ? () => createCampaignRoomFromLevel(nextCampaignLevel) : campaignStars > 0 && nextHumanHuntLevel ? () => createHumanHuntRoomFromLevel(nextHumanHuntLevel) : undefined,
     onAiChatRound: isHumanHuntMode ? requestAiChatRound : undefined,
@@ -2002,7 +2022,7 @@ function AiGameRoom() {
                   下一关
                 </Button>
               ) : (
-                <Button size="sm" onClick={() => navigate('/ai-game')} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
+                <Button size="sm" onClick={() => navigate(isHumanHuntMode ? '/ai-game/whoishuman' : '/ai-game/whoisundercover')} className="bg-[#c2410c] text-white hover:bg-[#9a3412]">
                   返回地图
                 </Button>
               )}
@@ -2021,7 +2041,7 @@ function AiGameRoom() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate('/ai-game')}
+            onClick={() => navigate(isHumanHuntMode ? '/ai-game/whoishuman' : '/ai-game/whoisundercover')}
               aria-label="返回"
               title="返回"
               className="h-8 w-8 flex-none rounded-full p-0"
