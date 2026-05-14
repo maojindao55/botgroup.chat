@@ -260,6 +260,59 @@ const humanHuntFallbackReplies = [
   '这几个人说法都挺像模板的。',
 ];
 
+// 不同社交钩子下的 fallback 池，让 AI 即使 LLM 失败也能针对性回应
+const humanHuntHookFallbacks: Record<string, string[]> = {
+  self_claim: [
+    '哦？这就自曝了。',
+    '装真人最像的就是你这种。',
+    '+1，我也是真人，不信你查。',
+    '说自己是真人的一般最假。',
+    '直接报身份这招太花了。',
+    '行，那大家都真人，散会。',
+    '这么急着自证，更可疑了。',
+    '真人会主动喊真人吗？',
+  ],
+  provoke: [
+    '别一棒子打死所有人。',
+    '你急啥，先看看再说。',
+    '说别人 AI 之前先自证一下？',
+    '这话听着像试探。',
+    '挑事的最可疑。',
+    '这么大动静，藏不住了吧。',
+  ],
+  mention: [
+    '叫我？我没啥可说的。',
+    '点我干嘛，听别人讲。',
+    '你先说你怎么看。',
+    '我刚才那句没毛病吧。',
+    '为啥盯着我，我也想问你。',
+  ],
+  question: [
+    '看情况吧。',
+    '不一定，得看人。',
+    '这问题挺难答的。',
+    '我也想听别人怎么说。',
+    '不太好讲，先听听。',
+  ],
+  starter: [
+    '随便聊点吧。',
+    '今天群里有点冷清。',
+    '不知道说啥，先开个头。',
+    '大家都在划水？',
+    '没啥事，唠唠呗。',
+  ],
+  normal: [
+    '我先看看大家怎么说。',
+    '这局现在还不好判断。',
+    '感觉先别急着下结论。',
+    '我觉得可以多聊两句再投。',
+    '刚才那句有点像在控细节。',
+    '我现在更想看谁接话最自然。',
+    '先观望一下，别太快暴露判断。',
+    '这几个人说法都挺像模板的。',
+  ],
+};
+
 export function pickPersona(index: number) {
   return personas[index % personas.length];
 }
@@ -649,13 +702,85 @@ export function sortHumanHuntSeats(roomId: string, players: any[]) {
   });
 }
 
-export function getHumanHuntFallbackReply(player: any, room: any, messages: any[]) {
+export function getHumanHuntFallbackReply(player: any, room: any, messages: any[], hookType: string = 'normal') {
   const round = getHumanHuntTurnState([], messages).round || getHumanHuntRoundNumber(messages) || 1;
-  const seed = hashStringToIndex(`${room.id}:${player.id}:${messages.length}:${round}`, humanHuntFallbackReplies.length);
-  return humanHuntFallbackReplies[seed];
+  const pool = humanHuntHookFallbacks[hookType] || humanHuntHookFallbacks.normal || humanHuntFallbackReplies;
+  const seed = hashStringToIndex(`${room.id}:${player.id}:${messages.length}:${round}:${hookType}`, pool.length);
+  return pool[seed];
 }
 
-export async function generateHumanHuntReply(env: any, player: any, room: any, messages: any[], replyIntent = '自然接一句') {
+/**
+ * 识别最近一条非系统发言里的"社交钩子"，让 AI 知道该怎么接话。
+ * 优先级：self_claim > provoke > mention > question > normal。
+ * - self_claim：发言者主动声称自己是真人/不是 AI。
+ * - provoke：发言者在挑衅、给所有 AI 扣帽子或下战书。
+ * - mention：发言里点名了某个编号玩家，或用"你"指代上一位发言者。
+ * - question：发言里有疑问语气，需要有人接话。
+ */
+export function detectHumanHuntHook(messages: any[], activePlayers: any[] = []) {
+  const latest = [...messages].reverse().find((msg: any) => msg.sender_type === 'human' || msg.sender_type === 'ai');
+  if (!latest) {
+    return {
+      type: 'starter' as const,
+      latest: null as any,
+      mentionedPlayer: null as any,
+      impliedTarget: null as any,
+      summary: '本轮还没人开口',
+    };
+  }
+  const content = String(latest.content || '');
+  const compact = content.replace(/\s+/g, '');
+
+  // self_claim: 自曝是真人 / 否认 AI 身份
+  const selfClaimRegex = /(我是(?:真人|人类|真的人|活人|真[实]?的人类|human))|(我[才就]是真人)|(我不是\s*(?:ai|AI|机器人|程序|bot))|(我可是真人)|(我是\s*human)|(I\s*am\s*(?:a\s*)?human)/i;
+  const isSelfClaim = selfClaimRegex.test(compact) || /我.{0,4}真.{0,2}人/.test(compact);
+
+  // provoke: 给所有人扣 AI 帽子 / 挑衅
+  const provokeRegex = /(你们[都全]?是\s*ai|你们这[些帮群]?\s*(?:ai|机器人|bot)|全都是\s*ai|这里都是\s*ai|有谁是真人|谁敢说自己是真人|没一个真人|都别装了|没一个像真人|这群\s*ai)/i;
+  const isProvoke = provokeRegex.test(compact);
+
+  // mention: @或"X号玩家"或"你"指代上一句 AI 发言者
+  const mentionMatch = compact.match(/(\d+)\s*号(?:玩家)?/);
+  const mentionedPlayer = mentionMatch
+    ? activePlayers.find((player: any) => String(player.display_name || '').startsWith(`${mentionMatch[1]}号`))
+    : null;
+  let impliedTarget: any = null;
+  if (!mentionedPlayer && /你/.test(compact) && latest.sender_type === 'human') {
+    const previousSpeaker = [...messages].reverse().find((msg: any) =>
+      Number(msg.id || 0) < Number(latest.id || 0)
+      && (msg.sender_type === 'ai' || msg.sender_type === 'human')
+      && msg.player_id !== latest.player_id
+    );
+    if (previousSpeaker) {
+      impliedTarget = activePlayers.find((player: any) => player.id === previousSpeaker.player_id) || null;
+    }
+  }
+  const isMention = Boolean(mentionedPlayer || impliedTarget);
+
+  // question: 含疑问语气
+  const questionRegex = /[?？]|吗[?？。！.! ]?$|呢[?？。！.! ]?$|怎么(?:样|办|看|说|回事)|为啥|为什么|多少|哪个|哪一?个|是不是|有没有|谁是/;
+  const isQuestion = questionRegex.test(content);
+
+  let type: 'self_claim' | 'provoke' | 'mention' | 'question' | 'normal' = 'normal';
+  if (isSelfClaim) type = 'self_claim';
+  else if (isProvoke) type = 'provoke';
+  else if (isMention) type = 'mention';
+  else if (isQuestion) type = 'question';
+
+  const summary = type === 'self_claim'
+    ? `${latest.sender_name || '某玩家'} 刚自曝："${content.slice(0, 40)}"`
+    : type === 'provoke'
+      ? `${latest.sender_name || '某玩家'} 在挑衅、扣 AI 帽子`
+      : type === 'mention'
+        ? `${latest.sender_name || '某玩家'} 点到了 ${(mentionedPlayer || impliedTarget)?.display_name || '某人'}`
+        : type === 'question'
+          ? `${latest.sender_name || '某玩家'} 抛了一个问题`
+          : '正常聊天，无特殊钩子';
+
+  return { type, latest, mentionedPlayer, impliedTarget, summary };
+}
+
+export async function generateHumanHuntReply(env: any, player: any, room: any, messages: any[], replyIntent = '自然接一句', hookType: string = 'normal') {
   try {
     const { config, apiKey } = getModel(env);
     const openai = new OpenAI({ apiKey, baseURL: config.baseURL });
@@ -669,17 +794,36 @@ export async function generateHumanHuntReply(env: any, player: any, room: any, m
       .slice(-4)
       .map((msg) => msg.content)
       .join('\n');
+    const hookGuide: Record<string, string> = {
+      self_claim: [
+        '【关键】刚才有玩家自曝是真人。这种自证在群聊里九成是反向操作或者玩梗，绝对不要当真去维护"我是 AI"的人设。',
+        '你应该有反应：可以跟着自曝（"那我也是真人"）、阴阳怪气（"装得真像"）、冷嘲（"哦"）、反问（"凭什么信你"）。',
+        '不能说"我是 AI / 我是语言模型"，也不要正经讨论身份哲学。',
+      ].join(' '),
+      provoke: [
+        '【关键】刚才有玩家在挑衅、给所有人扣 AI 帽子。',
+        '你应该顶回去：可以反问（"你急啥"）、冷淡反讽（"说这话的最可疑"）、转移话题，但不要承认自己是 AI。',
+      ].join(' '),
+      mention: [
+        '【关键】刚才有玩家点到名了，可能就是你。',
+        '简短回应一句即可：可以接住、可以反问、可以装没懂，但别像背稿一样。',
+      ].join(' '),
+      question: '刚才有人抛了问题，简短答一句或转问别人，别敷衍到看着像机器人。',
+      starter: '你是本轮先开口的人，用很普通的一句话开场，像是在群里随便说一句，不要点题。',
+      normal: '正常接话即可，不要主动抢戏。',
+    };
+    const hookHint = hookGuide[hookType] || hookGuide.normal;
     const prompt = [
-      '你正在玩群聊游戏“谁是人类”。',
+      '你正在玩群聊游戏"谁是人类"。',
       '你是 AI 玩家，但不能承认自己是 AI，也不能说自己是语言模型。',
-      '这一局只有一个真人混在 AI 里。你的发言目标是自然、普通、不太抢眼。',
+      '这一局只有一个真人混在 AI 里。你的发言目标是自然、像群友。',
       '回复必须短，通常 6 到 24 个中文字；不要 Markdown，不要列表，不要解释规则。',
-      '保持低信息量群聊口吻，可以敷衍、含糊、转问别人。',
-      '不要编具体职业、地点、食物、通勤、投资人、工作项目等真实经历。',
-      '不要连续围攻同一个玩家；最多轻轻怀疑一句，也可以正常接话。',
+      '可以敷衍、含糊、转问别人，也可以阴阳怪气、调侃，但不要编具体职业、地点、通勤、工作项目等真实经历。',
+      '不要连续围攻同一个玩家；面对挑衅或自曝时，可以怼一句但不要复读别人原话。',
       '当前没有固定题目，大家在自由讨论和互相试探。',
       `你的名字：${player.display_name}`,
       `你的人设：${player.ai_persona || '普通群友'}`,
+      `当前社交钩子：${hookType}。${hookHint}`,
       `这次发言任务：${replyIntent}`,
     ].join('\n');
 
@@ -700,10 +844,10 @@ export async function generateHumanHuntReply(env: any, player: any, room: any, m
       .replace(/[\r\n]+/g, ' ')
       .replace(/[()[\]（）【】]/g, '')
       .trim()
-      .slice(0, 60) || getHumanHuntFallbackReply(player, room, messages);
+      .slice(0, 60) || getHumanHuntFallbackReply(player, room, messages, hookType);
   } catch (error) {
     console.warn('human hunt ai reply fallback:', error);
-    return getHumanHuntFallbackReply(player, room, messages);
+    return getHumanHuntFallbackReply(player, room, messages, hookType);
   }
 }
 

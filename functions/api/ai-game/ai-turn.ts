@@ -1,4 +1,4 @@
-import { generateAiGameReply, generateHumanHuntReply, generateJuryReply, generateNpcReply, generateUndercoverReply, getHumanHuntTurnState, getPlayers, getRoom, json } from '../../utils/aiGame';
+import { detectHumanHuntHook, generateAiGameReply, generateHumanHuntReply, generateJuryReply, generateNpcReply, generateUndercoverReply, getHumanHuntTurnState, getPlayers, getRoom, json } from '../../utils/aiGame';
 
 interface Env {
   bgdb: D1Database;
@@ -31,21 +31,25 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       if (noRoundSpeech && starter?.player_type !== 'ai' && !force) {
         return json({ success: true, data: { replies: [] } });
       }
-      const latestContent = String(latest?.content || '');
-      const responderLimit = force ? 3 : noRoundSpeech ? 1 : (/[?？吗呢谁怎么咋为什么]/.test(latestContent) ? 2 : 1);
+      const hook = detectHumanHuntHook(messages, activePlayers);
+      // hook.type 决定本轮回复人数：自曝 3 人围观，挑衅/点名/提问 2 人，其他 1 人
+      const hookResponderLimit: Record<string, number> = {
+        self_claim: 3,
+        provoke: 2,
+        mention: 2,
+        question: 2,
+        normal: 1,
+        starter: 1,
+      };
+      const baseLimit = hookResponderLimit[hook.type] ?? 1;
+      const responderLimit = force
+        ? Math.max(3, baseLimit)
+        : noRoundSpeech
+          ? 1
+          : Math.min(activePlayers.length, baseLimit);
       const spokenIds = turnState.spokenIds || new Set<string>();
-      const explicitMention = latestContent.match(/(\d+)\s*号(?:玩家)?/);
-      const mentionedPlayer = explicitMention
-        ? activePlayers.find((player: any) => player.display_name.startsWith(`${explicitMention[1]}号`))
-        : null;
-      const previousSpeaker = latest?.sender_type === 'human' && /你/.test(latestContent)
-        ? [...messages]
-          .reverse()
-          .find((message: any) => Number(message.id || 0) < Number(latest?.id || 0) && message.sender_type === 'ai')
-        : null;
-      const impliedTarget = previousSpeaker
-        ? activePlayers.find((player: any) => player.id === previousSpeaker.player_id)
-        : null;
+      const mentionedPlayer = hook.mentionedPlayer || null;
+      const impliedTarget = hook.impliedTarget || null;
       const targetResponder = [mentionedPlayer, impliedTarget]
         .find((player: any) => player?.player_type === 'ai' && player.id !== latest?.player_id);
       const sortedResponders = activePlayers
@@ -56,7 +60,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           const aUnspoken = spokenIds.has(String(a.id)) ? 1 : 0;
           const bUnspoken = spokenIds.has(String(b.id)) ? 1 : 0;
           if (aUnspoken !== bUnspoken) return aUnspoken - bUnspoken;
-          const seed = `${roomId}:${turnState.round}:${messages.length}`;
+          const seed = `${roomId}:${turnState.round}:${messages.length}:${hook.type}`;
           const aScore = [...`${seed}:${a.id}`].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
           const bScore = [...`${seed}:${b.id}`].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
           return aScore - bScore;
@@ -65,15 +69,48 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         ? [starter]
         : sortedResponders.slice(0, responderLimit);
 
-      for (const speaker of responders) {
-        const intent = noRoundSpeech
-          ? '你是本轮先手，用很普通的一句话开场，别提题目，别编生活经历。'
-          : force
-            ? '主动接一下群聊，让还没说话的人参与感更强；可以转问别人，不要编具体生活经历。'
-            : targetResponder?.id === speaker.id
-              ? '你刚被点到或被追问了，简短回应一句，不要编具体生活经历。'
-              : '根据最近聊天自然接一句。优先正常回答或转问别人，不要围攻同一个人，不要编具体生活经历。';
-        const content = await generateHumanHuntReply(context.env, speaker, room, messages, intent);
+      // 每个 responder 在本批里的发言序号，用于让多个 AI 角度有差异
+      const intentVariantsByHook: Record<string, string[]> = {
+        self_claim: [
+          '刚才有人自曝是真人，你阴阳怪气地怼一句，比如"装得真像"或反问"凭啥信你"，但绝对不能说自己是 AI。',
+          '跟着自曝玩个梗，比如"那我也是真人"或者"+1"，淡淡带过，不要解释。',
+          '一脸不信地冷处理，比如"哦"、"行行行"，或者把话题推开。',
+        ],
+        provoke: [
+          '对方在挑衅扣 AI 帽子，你冷淡反问"你急啥"或"说这话的最可疑"，不要顺着承认。',
+          '把话题岔开，让群里别再纠缠这个，但语气别太正式。',
+        ],
+        mention: [
+          '你刚被点名了，简短接一句即可，可以反问也可以装没听清。',
+          '帮被点的人接一句，可以是怀疑也可以是带过。',
+        ],
+        question: [
+          '简短答一下问题，或者反问回去。',
+          '从另一个角度回答，不要复读上一个人。',
+        ],
+        starter: [
+          '本轮先手，普普通通起个话头，别像念稿一样。',
+        ],
+        normal: [
+          '正常接话一句即可，不要主动抢戏。',
+        ],
+      };
+      const intentVariants = intentVariantsByHook[hook.type] || intentVariantsByHook.normal;
+
+      for (let i = 0; i < responders.length; i++) {
+        const speaker = responders[i];
+        let intent: string;
+        if (noRoundSpeech) {
+          intent = '你是本轮先手，用很普通的一句话开场，别提题目，别编生活经历。';
+        } else if (force) {
+          intent = '主动接一下群聊，让还没说话的人参与感更强；可以转问别人，不要编具体生活经历。';
+        } else if (targetResponder?.id === speaker.id) {
+          intent = '你刚被点到或被追问了，简短回应一句，不要编具体生活经历。';
+        } else {
+          intent = intentVariants[i % intentVariants.length];
+        }
+        const speakerHookType = noRoundSpeech ? 'starter' : hook.type;
+        const content = await generateHumanHuntReply(context.env, speaker, room, messages, intent, speakerHookType);
         if (!content.trim()) continue;
         const result = await db.prepare(
           `INSERT INTO ai_game_messages (room_id, player_id, sender_name, sender_type, content, created_at)
