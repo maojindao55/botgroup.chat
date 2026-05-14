@@ -823,6 +823,7 @@ export async function generateHumanHuntReply(env: any, player: any, room: any, m
       '当前没有固定题目，大家在自由讨论和互相试探。',
       `你的名字：${player.display_name}`,
       `你的人设：${player.ai_persona || '普通群友'}`,
+      `本局存活玩家：${messages.filter((m) => m.sender_type === 'ai' || m.sender_type === 'human').map((m) => m.sender_name).filter((v, i, a) => a.indexOf(v) === i).join('、') || '未知'}。只能提到这些名字，不要编造不存在的玩家编号。`,
       `当前社交钩子：${hookType}。${hookHint}`,
       `这次发言任务：${replyIntent}`,
     ].join('\n');
