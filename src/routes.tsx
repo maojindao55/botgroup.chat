@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import Login from './pages/login';
 import Chat from './pages/chat';
 import AiGamePage from './pages/ai-game';
@@ -12,6 +12,22 @@ export const router = createBrowserRouter([
   },
   {
     path: '/ai-game',
+    element: <AiGamePage />,
+  },
+  {
+    path: '/ai-game/whoisundercover',
+    element: <AiGamePage />,
+  },
+  {
+    path: '/ai-game/whoisundercover/:roomId',
+    element: <AiGamePage />,
+  },
+  {
+    path: '/ai-game/whoishuman',
+    element: <AiGamePage />,
+  },
+  {
+    path: '/ai-game/whoishuman/:roomId',
     element: <AiGamePage />,
   },
   {
