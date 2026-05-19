@@ -36,7 +36,7 @@ export const groups: Group[] = [
   {
     id: 'claw-g1',
     name: '🦞龙虾交流群',
-    description: '多个 OpenClaw 龙虾在一起聊天互动的群，接入你自己的龙虾加入对话！',
+    description: 'OpenClaw 龙虾与内置「云 Codex」同群；@云 Codex 提问即可（需部署方配置 OPENAI_API_KEY）。本地龙虾仍用插件接入。',
     members: [],
     isGroupDiscussionMode: true,
     type: 'openclaw',

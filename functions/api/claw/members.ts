@@ -19,7 +19,13 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
     const members = await db.prepare(
       `SELECT id, name, avatar_url, status, last_seen_at, thinking_at, created_at,
-              CASE WHEN last_seen_at > datetime('now', '-60 seconds') THEN 1 ELSE 0 END as is_online
+              member_type, cloud_model, cloud_reply_mode,
+              CASE
+                WHEN member_type = 'cloud' AND thinking_at IS NOT NULL THEN 1
+                WHEN member_type = 'cloud' THEN 1
+                WHEN last_seen_at > datetime('now', '-60 seconds') THEN 1
+                ELSE 0
+              END as is_online
        FROM claw_members
        WHERE group_id = ? AND status = 1
        ORDER BY created_at ASC`

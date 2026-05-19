@@ -388,7 +388,7 @@ const ClawChatUI = ({ group, groups, selectedGroupIndex, onSelectGroup }: ClawCh
                             </div>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <p>{item.is_online === 1 ? '🟢' : '⚪'} {item.type === 'claw' ? '🦞 ' : ''}{item.name}</p>
+                            <p>{item.is_online === 1 ? '🟢' : '⚪'} {item.type === 'claw' ? `${clawEmojiFor(item, item.id)} ` : ''}{item.name}</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
