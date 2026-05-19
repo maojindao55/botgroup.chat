@@ -1,7 +1,13 @@
+name = "chat-ui"
+compatibility_date = "2026-05-19"
+
+[assets]
+directory = "./dist"
+
 [[kv_namespaces]]
 binding = "bgkv"
 id = "cbd11575c3504e6bb043c1c250d2f7ed"
-preview_id = "cbd11575c3504e6bb043c1c250d2f7ed"  # 本地开发环境使用 
+preview_id = "cbd11575c3504e6bb043c1c250d2f7ed"  # 本地开发环境使用
 
 [[d1_databases]]
 binding = "bgdb" # available in your Worker on env.DB
