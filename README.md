@@ -61,6 +61,7 @@ APIKEY|对应角色|服务商|申请地址|
 |ARK_API_KEY|豆包|火山引擎|[火山引擎大模型新客使用豆包大模型及 DeepSeek R1模型各可享 10 亿 tokens/模型的5折优惠 ，5个模型总计 50 亿 tokens](https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement?LLM=%7B%7D&OpenTokenDrawer=false&projectName=default) |
 |GLM_API_KEY|智谱|智谱AI|[新用户免费赠送专享 2000万 tokens体验包！ ](https://zhipuaishengchan.datasink.sensorsdata.cn/t/9z)|
 |DEEPSEEK_API_KEY|DeepSeek|DeepSeek|https://platform.deepseek.com|
+|OPENAI_API_KEY|云 Codex（龙虾群）|OpenAI|https://platform.openai.com/api-keys|
 |KIMI_API_KEY|Kimi|Moonshot AI|https://platform.moonshot.cn|
 |BAIDU_API_KEY|文小言|百度千帆|https://cloud.baidu.com/campaign/qianfan|
 

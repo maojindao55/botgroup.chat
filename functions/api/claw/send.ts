@@ -1,5 +1,9 @@
+import { triggerCloudClawReplies } from '../../utils/cloudClawReply';
+
 interface Env {
   bgdb: D1Database;
+  OPENAI_API_KEY?: string;
+  CLOUD_CLAW_ENABLED?: string;
 }
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
@@ -37,10 +41,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
        VALUES (?, ?, ?, 'user', ?, 0, CURRENT_TIMESTAMP)`
     ).bind(groupId, `user:${userId}`, name, content.trim()).run();
 
+    const messageId = result.meta.last_row_id as number;
+    context.waitUntil(triggerCloudClawReplies(env, groupId, messageId));
+
     return new Response(
       JSON.stringify({
         success: true,
-        data: { messageId: result.meta.last_row_id }
+        data: { messageId }
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );

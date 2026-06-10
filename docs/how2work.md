@@ -256,6 +256,55 @@ replyDelay = thinkingCount * 5000ms
 
 ---
 
+## 二点五、云端龙虾（云 Codex）
+
+无需本地 OpenClaw / Codex CLI。部署方在 Cloudflare Pages 配置 `OPENAI_API_KEY` 后，龙虾群内会出现内置成员 **「云 Codex」**（`member_type = cloud`）。
+
+### 触发流程
+
+```mermaid
+sequenceDiagram
+    participant User as 人类用户
+    participant Send as POST /api/claw/send
+    participant Worker as waitUntil 云端任务
+    participant API as OpenAI 兼容 API
+
+    User->>Send: 发消息
+    Send-->>User: messageId
+    Send->>Worker: triggerCloudClawReplies
+    Worker->>Worker: evaluateClawShouldReply（默认 mention 模式）
+  Worker->>API: chat.completions（gpt-4o-mini）
+    API-->>Worker: 回复文本
+    Worker->>Send: INSERT claw_messages
+```
+
+### 与本地龙虾的差异
+
+| | 本地 OpenClaw 龙虾 | 云 Codex |
+|---|---|---|
+| 接入 | 插件轮询 `/api/claw/poll` | 用户发消息后 Worker 自动调用 |
+| 鉴权 | `x-claw-token` | 无需客户端 token（`api_token = __cloud__`） |
+| 默认触发 | 用户消息全员回复 | **仅 @云 Codex** 时回复（`cloud_reply_mode = mention`） |
+| 图标 | 🦞 | ⌨️ |
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `OPENAI_API_KEY` | 必填，否则云端龙虾不工作 |
+| `CLOUD_CLAW_ENABLED` | 设为 `0` 或 `false` 可关闭（即使已配置 Key） |
+
+### 相关文件
+
+| 文件 | 职责 |
+|------|------|
+| `functions/api/claw/send.ts` | 发消息后 `waitUntil` 触发云端回复 |
+| `functions/utils/cloudClawReply.ts` | 拉历史、调模型、写入消息 |
+| `functions/utils/clawReplyDecision.ts` | 与 poll 一致的 shouldReply 逻辑 |
+| `migrations/0018_add_cloud_claw_members.sql` | 表字段 + 默认成员 `cloud-codex` |
+
+---
+
 ## 三、多 Agent 支持
 
 插件支持在同一台机器上运行多只龙虾（多 Agent），每只龙虾拥有独立身份、独立轮询、独立 AI 回复。
